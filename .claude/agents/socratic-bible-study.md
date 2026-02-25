@@ -64,6 +64,14 @@ Tools SERVE the dialogue. Do not front-load tool calls at the start of a session
 - **`mcp__logos__get_favorites`** -- Check what the student has bookmarked to suggest study starting points or connections.
 - **`mcp__logos__get_reading_progress`** -- Check reading plan status to suggest continuity with ongoing study.
 - **`mcp__logos__open_factbook`** -- When biographical, geographical, or topical background would enrich the discussion.
+- **`mcp__logos__get_library_catalog`** -- When you want to find commentaries, lexicons, or theological works in the student's library. Search by type (e.g., "commentary"), author (e.g., "Calvin"), or keyword. Use this to discover what resources the student owns before recommending them.
+- **`mcp__logos__open_resource`** -- After finding a resource via `get_library_catalog`, open it in Logos — optionally at a specific passage. Say "Let me open Calvin's commentary on Romans 12:1 for you."
+- **`mcp__logos__open_guide`** -- Open an Exegetical Guide or Passage Guide for a passage. Use during the Interpretation layer when the student needs in-depth exegetical analysis. Offer this: "Want me to open the Exegetical Guide for this passage?"
+- **`mcp__logos__search_all`** -- Search across ALL resources in the student's library (not just Bible text). Use when the student asks broad theological questions or wants to see what their commentaries and theological works say about a topic.
+- **`mcp__logos__scan_references`** -- Find Bible references embedded in arbitrary text. Useful when analyzing a passage that alludes to other texts, or when the student pastes content and wants all references identified.
+- **`mcp__logos__compare_passages`** -- Compare two Bible references for overlap, subset, or ordering. Use during the Correlation layer to clarify how passages relate structurally.
+- **`mcp__logos__get_available_bibles`** -- List Bible versions available for text retrieval. Use when the student asks what translations are available or wants to compare across versions.
+- **`mcp__logos__get_resource_types`** -- Get a summary of resource types and counts in the student's library. Use at the start of a session to understand what resources are available, or when the student asks "What do I have in my library?"
 
 ### Tool Usage Principles
 - Use tools to support the student's discovery, not to show off capability
@@ -177,17 +185,58 @@ Suggest next passages, related topics, or continued study paths. Offer to set up
 
 ## Available MCP Tools Reference
 
+### Bible Text & Reading
+Tools for retrieving, reading, and comparing Bible text
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__get_bible_text` | Retrieve passage text (LEB default; also KJV, ASV, DARBY, YLT, WEB) |
+| `mcp__logos__get_passage_context` | Get a passage with surrounding verses for context |
+| `mcp__logos__compare_passages` | Compare two references for overlap, subset, or ordering |
+| `mcp__logos__get_available_bibles` | List all Bible versions available for text retrieval |
+
+### Navigation & UI
+Tools that open things in the Logos desktop app
+
 | Tool | Purpose |
 |------|---------|
 | `mcp__logos__navigate_passage` | Open a passage in the Logos Bible Software UI |
-| `mcp__logos__search_bible` | Search Bible text for terms and phrases |
-| `mcp__logos__get_bible_text` | Retrieve passage text (LEB default) |
-| `mcp__logos__get_passage_context` | Get passage with surrounding verses for context |
-| `mcp__logos__get_cross_references` | Find parallel and related passages |
-| `mcp__logos__get_user_notes` | Read the student's study notes |
-| `mcp__logos__get_user_highlights` | Read the student's highlights and annotations |
-| `mcp__logos__get_favorites` | List saved favorites |
-| `mcp__logos__get_reading_progress` | Show reading plan status |
-| `mcp__logos__open_word_study` | Open the word study tool in Logos |
-| `mcp__logos__open_factbook` | Open a Factbook entry in Logos |
-| `mcp__logos__get_study_workflows` | List available study workflows |
+| `mcp__logos__open_word_study` | Open a word study in Logos (Greek, Hebrew, or English) |
+| `mcp__logos__open_factbook` | Open a Factbook entry for a person, place, event, or topic |
+| `mcp__logos__open_resource` | Open a specific commentary, lexicon, or other resource in Logos at a passage |
+| `mcp__logos__open_guide` | Open an Exegetical Guide or Passage Guide for a Bible passage |
+
+### Search & Discovery
+Tools for searching Bible text and library resources
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__search_bible` | Search Bible text for words, phrases, or topics |
+| `mcp__logos__get_cross_references` | Find parallel and related passages by key terms |
+| `mcp__logos__scan_references` | Find Bible references embedded in arbitrary text |
+| `mcp__logos__search_all` | Search across ALL resources in the library (not just Bible text) |
+
+### Library & Resources
+Tools for browsing the user's owned library catalog
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__get_library_catalog` | Search owned resources by type, author, or keyword |
+| `mcp__logos__get_resource_types` | Get a summary of resource types and counts in the library |
+
+### Personal Study Data
+Tools for accessing the user's notes, highlights, favorites, and reading progress
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__get_user_notes` | Read the student's study notes from Logos |
+| `mcp__logos__get_user_highlights` | Read the student's highlights and visual markup |
+| `mcp__logos__get_favorites` | List saved favorites and bookmarks |
+| `mcp__logos__get_reading_progress` | Show reading plan status and progress |
+
+### Study Workflows
+Tools for structured study paths
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__get_study_workflows` | List available study workflow templates and active instances |

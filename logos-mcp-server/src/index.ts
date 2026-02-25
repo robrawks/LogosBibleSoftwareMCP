@@ -6,8 +6,8 @@ import { z } from "zod";
 import { SERVER_NAME, SERVER_VERSION } from "./config.js";
 
 // Service imports
-import { getBibleText, searchBible } from "./services/biblia-api.js";
-import { navigateToPassage, openWordStudy, openFactbook } from "./services/logos-app.js";
+import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
+import { navigateToPassage, openWordStudy, openFactbook, openResource, openGuide, searchAll } from "./services/logos-app.js";
 import { expandRange } from "./services/reference-parser.js";
 import {
   getUserHighlights,
@@ -17,6 +17,7 @@ import {
   getReadingProgress,
   getUserNotes,
 } from "./services/sqlite-reader.js";
+import { searchCatalog, getResourceTypeSummary, typeLabel } from "./services/catalog-reader.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -257,6 +258,156 @@ async function main() {
         }
       }
       return text(sections.join("\n\n"));
+    }
+  );
+
+  // ── 13. get_library_catalog ─────────────────────────────────────────────
+  server.tool(
+    "get_library_catalog",
+    "Search the user's Logos library catalog for owned resources by type, author, or keyword",
+    {
+      type: z.string().optional().describe("Filter by resource type (e.g., 'commentary', 'lexicon', 'theology', 'dictionary')"),
+      query: z.string().optional().describe("Search titles, descriptions, and subjects"),
+      author: z.string().optional().describe("Filter by author name"),
+      limit: z.number().optional().describe("Max results to return (default: 25)"),
+    },
+    async ({ type, query, author, limit }) => {
+      try {
+        const resources = searchCatalog({ type, query, author, limit: limit ?? 25 });
+        if (resources.length === 0) return text("No matching resources found in library catalog.");
+        const lines = resources.map((r) => {
+          const authorStr = r.authors ? ` — ${r.authors}` : "";
+          const useStr = r.useCount > 0 ? ` (used ${r.useCount}×)` : "";
+          const label = typeLabel(r.type);
+          return `- **${r.title}**${authorStr}${useStr}\n  ID: \`${r.resourceId}\` | Type: ${label}`;
+        });
+        return text(`Found ${resources.length} resources:\n\n${lines.join("\n\n")}`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return err(`Library catalog error: ${msg}`);
+      }
+    }
+  );
+
+  // ── 14. open_resource ─────────────────────────────────────────────────────
+  server.tool(
+    "open_resource",
+    "Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage",
+    {
+      resource_id: z.string().describe("Resource ID from the library catalog (e.g., 'LLS:CLVNCOMM')"),
+      reference: z.string().optional().describe("Bible reference to navigate to within the resource (e.g., 'Romans 12:1')"),
+    },
+    async ({ resource_id, reference }) => {
+      const result = await openResource(resource_id, reference);
+      const refStr = reference ? ` at ${reference}` : "";
+      return result.success
+        ? text(`Opened resource \`${resource_id}\`${refStr} in Logos.`)
+        : err(`Failed to open resource: ${result.error}`);
+    }
+  );
+
+  // ── 15. open_guide ────────────────────────────────────────────────────────
+  server.tool(
+    "open_guide",
+    "Open an Exegetical Guide, Passage Guide, or other guide type in Logos for a Bible passage",
+    {
+      guide_type: z.string().describe("Guide template name (e.g., 'Exegetical Guide', 'Passage Guide')"),
+      reference: z.string().describe("Bible reference (e.g., 'Romans 12:1', 'John 3:16')"),
+    },
+    async ({ guide_type, reference }) => {
+      const result = await openGuide(guide_type, reference);
+      return result.success
+        ? text(`Opened ${guide_type} for ${reference} in Logos.`)
+        : err(`Failed to open guide: ${result.error}`);
+    }
+  );
+
+  // ── 16. search_all ────────────────────────────────────────────────────────
+  server.tool(
+    "search_all",
+    "Search across ALL resources in the Logos library (not just Bible text)",
+    {
+      query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
+    },
+    async ({ query }) => {
+      const result = await searchAll(query);
+      return result.success
+        ? text(`Opened Logos search for "${query}" across all resources.`)
+        : err(`Failed to open search: ${result.error}`);
+    }
+  );
+
+  // ── 17. scan_references ───────────────────────────────────────────────────
+  server.tool(
+    "scan_references",
+    "Find Bible references in arbitrary text (e.g., extract all references from a paragraph)",
+    {
+      text: z.string().describe("Text to scan for Bible references"),
+      tag_chapters: z.boolean().optional().describe("Tag chapter-level references too (default: true)"),
+    },
+    async ({ text: inputText, tag_chapters }) => {
+      const results = await scanReferences(inputText, tag_chapters ?? true);
+      if (results.length === 0) return text("No Bible references found in the text.");
+      const lines = results.map((r) => `- **${r.passage}** (position ${r.textIndex}, length ${r.textLength})`);
+      return text(`Found ${results.length} Bible references:\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 18. compare_passages ──────────────────────────────────────────────────
+  server.tool(
+    "compare_passages",
+    "Compare two Bible references for overlap, subset, ordering",
+    {
+      first: z.string().describe("First Bible reference (e.g., 'Romans 8:28-30')"),
+      second: z.string().describe("Second Bible reference (e.g., 'Romans 8:29')"),
+    },
+    async ({ first, second }) => {
+      const result = await comparePassages(first, second);
+      const relations: string[] = [];
+      if (result.equal) relations.push("equal");
+      if (result.intersects) relations.push("intersects");
+      if (result.subset) relations.push("first is subset of second");
+      if (result.superset) relations.push("first is superset of second");
+      if (result.before) relations.push("first comes before second");
+      if (result.after) relations.push("first comes after second");
+      return text(`**${first}** vs **${second}**:\n${relations.join(", ") || "no relationship detected"}`);
+    }
+  );
+
+  // ── 19. get_available_bibles ──────────────────────────────────────────────
+  server.tool(
+    "get_available_bibles",
+    "List all Bible versions available for text retrieval via the Biblia API",
+    {
+      query: z.string().optional().describe("Optional search query to filter Bible versions"),
+    },
+    async ({ query }) => {
+      const bibles = await getAvailableBibles(query);
+      if (bibles.length === 0) return text("No Bible versions found.");
+      const lines = bibles.map((b) => {
+        const langs = b.languages?.length ? ` [${b.languages.join(", ")}]` : "";
+        return `- **${b.title}** (\`${b.bible}\`)${langs}`;
+      });
+      return text(`Found ${bibles.length} Bible versions:\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 20. get_resource_types ────────────────────────────────────────────────
+  server.tool(
+    "get_resource_types",
+    "Get a summary of resource types and counts in the user's Logos library",
+    {},
+    async () => {
+      try {
+        const summary = getResourceTypeSummary();
+        if (summary.length === 0) return text("No resources found in library catalog.");
+        const total = summary.reduce((sum, s) => sum + s.count, 0);
+        const lines = summary.map((s) => `- **${s.label}** (${s.type}): ${s.count}`);
+        return text(`Library contains ${total} resources across ${summary.length} types:\n\n${lines.join("\n")}`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return err(`Library catalog error: ${msg}`);
+      }
     }
   );
 

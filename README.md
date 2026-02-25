@@ -4,7 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 ## What This Does
 
-- **12 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites, check reading plans, and explore word studies and factbook entries
+- **20 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, and run cross-resource searches
 - **A Socratic Bible Study agent** that guides you through Scripture using questions (not lectures), welcoming any denominational background, with four questioning layers: Observation, Interpretation, Correlation, and Application
 
 ## Prerequisites
@@ -69,23 +69,64 @@ BIBLIA_API_KEY=your_api_key_here
 claude
 ```
 
-Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 12 tools.
+Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 20 tools.
 
 ## Available Tools
+
+### Bible Text & Reading
+Tools for retrieving, reading, and comparing Bible text
+
+| Tool | What it does |
+|------|-------------|
+| `get_bible_text` | Retrieves passage text (LEB default; also KJV, ASV, DARBY, YLT, WEB) |
+| `get_passage_context` | Gets a passage with surrounding verses for context |
+| `compare_passages` | Compares two Bible references for overlap, subset, or ordering |
+| `get_available_bibles` | Lists all Bible versions available for text retrieval |
+
+### Navigation & UI
+Tools that open things in the Logos desktop app
 
 | Tool | What it does |
 |------|-------------|
 | `navigate_passage` | Opens a passage in the Logos UI |
-| `get_bible_text` | Retrieves passage text (LEB default; also KJV, ASV, DARBY, YLT, WEB) |
-| `get_passage_context` | Gets a passage with surrounding verses for context |
+| `open_word_study` | Opens a word study in Logos (Greek/Hebrew/English) |
+| `open_factbook` | Opens a Factbook entry for a person, place, event, or topic |
+| `open_resource` | Opens a specific commentary, lexicon, or other resource in Logos at a passage |
+| `open_guide` | Opens an Exegetical Guide or Passage Guide for a Bible passage |
+
+### Search & Discovery
+Tools for searching Bible text and library resources
+
+| Tool | What it does |
+|------|-------------|
 | `search_bible` | Searches Bible text for words, phrases, or topics |
 | `get_cross_references` | Finds related passages by extracting key terms |
+| `scan_references` | Finds Bible references embedded in arbitrary text |
+| `search_all` | Searches across ALL resources in your library (not just Bible text) |
+
+### Library & Resources
+Tools for browsing your owned library catalog
+
+| Tool | What it does |
+|------|-------------|
+| `get_library_catalog` | Searches your owned resources (commentaries, lexicons, etc.) by type, author, or keyword |
+| `get_resource_types` | Shows a summary of resource types and counts in your library |
+
+### Personal Study Data
+Tools for accessing your notes, highlights, favorites, and reading progress
+
+| Tool | What it does |
+|------|-------------|
 | `get_user_notes` | Reads your study notes from Logos |
 | `get_user_highlights` | Reads your highlights and visual markup |
 | `get_favorites` | Lists your saved favorites/bookmarks |
 | `get_reading_progress` | Shows your reading plan status |
-| `open_word_study` | Opens a word study in Logos (Greek/Hebrew/English) |
-| `open_factbook` | Opens a Factbook entry for a person, place, or topic |
+
+### Study Workflows
+Tools for structured study paths
+
+| Tool | What it does |
+|------|-------------|
 | `get_study_workflows` | Lists available study workflow templates and active instances |
 
 ## Using the Socratic Bible Study Agent
@@ -123,14 +164,15 @@ LogosInteraction/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # MCP server entry point (12 tools)
+│   │   ├── index.ts                   # MCP server entry point (20 tools)
 │   │   ├── config.ts                  # Paths, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
 │   │   └── services/
 │   │       ├── reference-parser.ts    # Bible reference normalization
 │   │       ├── biblia-api.ts          # Biblia.com REST API client
 │   │       ├── logos-app.ts           # macOS URL scheme / AppleScript
-│   │       └── sqlite-reader.ts       # Read-only Logos SQLite access
+│   │       ├── sqlite-reader.ts       # Read-only Logos SQLite access
+│   │       └── catalog-reader.ts     # Library catalog search (catalog.db)
 │   └── dist/                          # Built output (after npm run build)
 ```
 
@@ -140,7 +182,7 @@ The MCP server integrates with Logos through three channels:
 
 - **Biblia API** - Retrieves Bible text and search results via the free REST API from Faithlife (same company as Logos)
 - **macOS URL schemes** - Opens passages, word studies, and factbook entries directly in the Logos app using `logos4:///` URLs
-- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans) directly from the Logos local database files (read-only access, never modifies your data)
+- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans) and library catalog directly from the Logos local database files (read-only access, never modifies your data)
 
 ## Logos Data Path
 
@@ -150,7 +192,7 @@ The server expects Logos data at:
 ~/Library/Application Support/Logos4/Documents/a3wo155q.w14/
 ```
 
-If your Logos data is at a different path, set the `LOGOS_DATA_DIR` environment variable in `.mcp.json`:
+If your Logos data is at a different path, set the `LOGOS_DATA_DIR` environment variable in `.mcp.json`. The library catalog lives under `Data/` (not `Documents/`) — set `LOGOS_CATALOG_DIR` if your catalog path differs:
 
 ```json
 {
@@ -160,7 +202,8 @@ If your Logos data is at a different path, set the `LOGOS_DATA_DIR` environment 
       "args": ["logos-mcp-server/dist/index.js"],
       "env": {
         "BIBLIA_API_KEY": "your_key",
-        "LOGOS_DATA_DIR": "/path/to/your/Logos4/Documents/xxxx.w14"
+        "LOGOS_DATA_DIR": "/path/to/your/Logos4/Documents/xxxx.w14",
+        "LOGOS_CATALOG_DIR": "/path/to/your/Logos4/Data/xxxx.w14"
       }
     }
   }

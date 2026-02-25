@@ -35,6 +35,43 @@ export async function openFactbook(topic: string): Promise<LogosCommandResult> {
   return openUrl(`logos4:///Factbook?ref=${encoded}`);
 }
 
+export async function openResource(
+  resourceId: string,
+  reference?: string
+): Promise<LogosCommandResult> {
+  try {
+    const encodedId = encodeURIComponent(resourceId);
+    let url = `logosres:${encodedId}`;
+    if (reference) {
+      const logosRef = toLogosUrlRef(reference);
+      url += `;ref=bible.${logosRef}`;
+    }
+    return openUrl(url);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, command: `logosres:${resourceId}`, error: msg };
+  }
+}
+
+export async function openGuide(
+  guideType: string,
+  reference: string
+): Promise<LogosCommandResult> {
+  try {
+    const logosRef = toLogosUrlRef(reference);
+    const template = encodeURIComponent(guideType);
+    return openUrl(`logos4:///Guide?t=${template}&ref=bible.${logosRef}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { success: false, command: "", error: msg };
+  }
+}
+
+export async function searchAll(query: string): Promise<LogosCommandResult> {
+  const encoded = encodeURIComponent(query);
+  return openUrl(`logos4:///Search?kind=AllSearch&syntax=v2&q=${encoded}`);
+}
+
 export async function isLogosRunning(): Promise<boolean> {
   try {
     const { stdout } = await execFileAsync("osascript", [

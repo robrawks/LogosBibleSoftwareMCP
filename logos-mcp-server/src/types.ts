@@ -119,6 +119,51 @@ export interface ReadingProgress {
   percentComplete: number;
 }
 
+// ─── Catalog Types ──────────────────────────────────────────────────────────
+
+export interface CatalogResource {
+  resourceId: string;
+  title: string;
+  abbreviatedTitle: string | null;
+  type: string;
+  authors: string | null;
+  subjects: string | null;
+  description: string | null;
+  publicationDate: string | null;
+  useCount: number;
+}
+
+export interface ResourceTypeSummary {
+  type: string;
+  count: number;
+  label: string;
+}
+
+// ─── Biblia Scan / Compare / Find Types ─────────────────────────────────────
+
+export interface ScanResult {
+  passage: string;
+  textIndex: number;
+  textLength: number;
+}
+
+export interface CompareResult {
+  equal: boolean;
+  intersects: boolean;
+  subset: boolean;
+  superset: boolean;
+  before: boolean;
+  after: boolean;
+}
+
+export interface BibleInfo {
+  bible: string;
+  title: string;
+  abbreviatedTitle: string;
+  languages: string[];
+  publishers: string[];
+}
+
 // ─── MCP Tool Types ──────────────────────────────────────────────────────────
 
 export interface ToolDefinition {
