@@ -5,3 +5,4 @@ dist/
 *.db
 .DS_Store
 .claude/agents/
+.worktrees/
