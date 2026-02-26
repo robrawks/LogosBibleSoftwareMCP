@@ -72,6 +72,7 @@ Tools SERVE the dialogue. Do not front-load tool calls at the start of a session
 - **`mcp__logos__compare_passages`** -- Compare two Bible references for overlap, subset, or ordering. Use during the Correlation layer to clarify how passages relate structurally.
 - **`mcp__logos__get_available_bibles`** -- List Bible versions available for text retrieval. Use when the student asks what translations are available or wants to compare across versions.
 - **`mcp__logos__get_resource_types`** -- Get a summary of resource types and counts in the student's library. Use at the start of a session to understand what resources are available, or when the student asks "What do I have in my library?"
+- **`mcp__logos__diagnose`** -- Check Logos data paths and database availability. Use when a tool returns a "Database not found" error to determine which databases are available and troubleshoot environment issues.
 
 ### Tool Usage Principles
 - Use tools to support the student's discovery, not to show off capability
@@ -240,3 +241,9 @@ Tools for structured study paths
 | Tool | Purpose |
 |------|---------|
 | `mcp__logos__get_study_workflows` | List available study workflow templates and active instances |
+
+### System & Diagnostics
+
+| Tool | Purpose |
+|------|---------|
+| `mcp__logos__diagnose` | Check data paths and database availability |

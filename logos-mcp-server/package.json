@@ -8,7 +8,8 @@
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "diagnose": "node dist/cli.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
