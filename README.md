@@ -4,8 +4,9 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 ## What This Does
 
-- **20 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, and run cross-resource searches
+- **21 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, and diagnose environment issues
 - **A Socratic Bible Study agent** that guides you through Scripture using questions (not lectures), welcoming any denominational background, with four questioning layers: Observation, Interpretation, Correlation, and Application
+- **A QA Tool Tester agent** that systematically exercises all 21 tools and produces a pass/fail/skip report
 
 ## Prerequisites
 
@@ -69,7 +70,7 @@ BIBLIA_API_KEY=your_api_key_here
 claude
 ```
 
-Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 20 tools.
+Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 21 tools.
 
 ## Available Tools
 
@@ -129,6 +130,13 @@ Tools for structured study paths
 |------|-------------|
 | `get_study_workflows` | Lists available study workflow templates and active instances |
 
+### System & Diagnostics
+Tools for troubleshooting and verifying your setup
+
+| Tool | What it does |
+|------|-------------|
+| `diagnose` | Checks Logos data paths, database availability, and API configuration |
+
 ## Using the Socratic Bible Study Agent
 
 Start Claude Code in the project directory, then:
@@ -157,14 +165,16 @@ The agent will ask what you want to study and guide you through Scripture using 
 LogosInteraction/
 ├── .claude/
 │   └── agents/
-│       └── socratic-bible-study.md    # Socratic agent definition
+│       ├── socratic-bible-study.md    # Socratic agent definition
+│       └── tool-tester.md            # QA agent for testing all 21 tools
 ├── .mcp.json                          # MCP server config (you create this)
 ├── .env                               # API key (you create this)
 ├── logos-mcp-server/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # MCP server entry point (20 tools)
+│   │   ├── index.ts                   # MCP server entry point (21 tools)
+│   │   ├── cli.ts                    # Diagnose CLI entry point
 │   │   ├── config.ts                  # Paths, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
 │   │   └── services/
@@ -211,6 +221,8 @@ If your Logos data is at a different path, set the `LOGOS_DATA_DIR` environment 
 ```
 
 ## Troubleshooting
+
+**Quick diagnostic check** - Run `cd logos-mcp-server && npm run diagnose` to verify all data paths, databases, and API configuration before launching Claude Code.
 
 **"BIBLIA_API_KEY is not set"** - Make sure your `.mcp.json` has the `env` block with your API key.
 
