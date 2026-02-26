@@ -72,9 +72,9 @@ export async function scanReferences(
   const data = await bibliaFetch("/scan", {
     text,
     tagChapters: String(tagChapters),
-  }) as { results: ScanResult[] };
+  }) as { results: Array<{ passage: string; textIndex: number; textLength: number }> };
 
-  return data.results ?? [];
+  return (data.results ?? []).map((r) => ({ passage: r.passage }));
 }
 
 // ─── Compare Passages ───────────────────────────────────────────────────────

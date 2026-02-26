@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync } from "fs";
 import { DB_PATHS } from "../config.js";
+import { stripRichText } from "../utils/strip-markup.js";
 import type {
   HighlightResult,
   FavoriteResult,
@@ -282,16 +283,18 @@ export function getUserNotes(options: {
       TagsJson: string | null;
     }>;
 
-    return rows.map((r) => ({
-      noteId: r.NoteId,
-      externalId: r.ExternalId,
-      content: r.ContentRichText,
-      createdDate: r.CreatedDate,
-      modifiedDate: r.ModifiedDate,
-      notebookTitle: r.NotebookTitle,
-      anchorsJson: r.AnchorsJson,
-      tagsJson: r.TagsJson,
-    }));
+    return rows
+      .map((r) => ({
+        noteId: r.NoteId,
+        externalId: r.ExternalId,
+        content: stripRichText(r.ContentRichText),
+        createdDate: r.CreatedDate,
+        modifiedDate: r.ModifiedDate,
+        notebookTitle: r.NotebookTitle,
+        anchorsJson: r.AnchorsJson,
+        tagsJson: r.TagsJson,
+      }))
+      .filter((n) => n.content !== null);
   } finally {
     db.close();
   }

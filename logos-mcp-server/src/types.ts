@@ -130,21 +130,17 @@ export interface CatalogResource {
   subjects: string | null;
   description: string | null;
   publicationDate: string | null;
-  useCount: number;
 }
 
 export interface ResourceTypeSummary {
-  type: string;
-  count: number;
   label: string;
+  count: number;
 }
 
 // ─── Biblia Scan / Compare / Find Types ─────────────────────────────────────
 
 export interface ScanResult {
   passage: string;
-  textIndex: number;
-  textLength: number;
 }
 
 export interface CompareResult {

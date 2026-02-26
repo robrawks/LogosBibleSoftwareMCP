@@ -121,9 +121,12 @@ async function main() {
         searchQuery = words.join(" ");
       }
       const results = await searchBible(searchQuery, { limit: 15 });
-      if (results.resultCount === 0) return text(`No cross-references found for ${passage}.`);
-      const lines = results.results.map((r) => `**${r.title}**: ${r.preview}`);
-      return text(`Cross-references for **${passage}** (searched: "${searchQuery}"):\n\n${lines.join("\n\n")}`);
+      const filtered = results.results.filter(
+        (r) => r.title.toLowerCase() !== passage.toLowerCase()
+      );
+      if (filtered.length === 0) return text(`No cross-references found for ${passage}.`);
+      const lines = filtered.map((r) => `**${r.title}**: ${r.preview}`);
+      return text(`Cross-references for **${passage}**:\n\n${lines.join("\n\n")}`);
     }
   );
 
@@ -141,8 +144,7 @@ async function main() {
       const lines = notes.map((n) => {
         const header = n.notebookTitle ? `[${n.notebookTitle}]` : "[No notebook]";
         const date = n.modifiedDate ?? n.createdDate;
-        const content = n.content ? n.content.substring(0, 300) : "(no content)";
-        return `${header} (${date})\n${content}`;
+        return `${header} (${date})\n${n.content}`;
       });
       return text(`Found ${notes.length} notes:\n\n${lines.join("\n\n---\n\n")}`);
     }
@@ -277,9 +279,8 @@ async function main() {
         if (resources.length === 0) return text("No matching resources found in library catalog.");
         const lines = resources.map((r) => {
           const authorStr = r.authors ? ` — ${r.authors}` : "";
-          const useStr = r.useCount > 0 ? ` (used ${r.useCount}×)` : "";
           const label = typeLabel(r.type);
-          return `- **${r.title}**${authorStr}${useStr}\n  ID: \`${r.resourceId}\` | Type: ${label}`;
+          return `- **${r.title}**${authorStr}\n  ID: \`${r.resourceId}\` | Type: ${label}`;
         });
         return text(`Found ${resources.length} resources:\n\n${lines.join("\n\n")}`);
       } catch (e) {
@@ -348,7 +349,7 @@ async function main() {
     async ({ text: inputText, tag_chapters }) => {
       const results = await scanReferences(inputText, tag_chapters ?? true);
       if (results.length === 0) return text("No Bible references found in the text.");
-      const lines = results.map((r) => `- **${r.passage}** (position ${r.textIndex}, length ${r.textLength})`);
+      const lines = results.map((r) => `- **${r.passage}**`);
       return text(`Found ${results.length} Bible references:\n\n${lines.join("\n")}`);
     }
   );
@@ -402,7 +403,7 @@ async function main() {
         const summary = getResourceTypeSummary();
         if (summary.length === 0) return text("No resources found in library catalog.");
         const total = summary.reduce((sum, s) => sum + s.count, 0);
-        const lines = summary.map((s) => `- **${s.label}** (${s.type}): ${s.count}`);
+        const lines = summary.map((s) => `- **${s.label}**: ${s.count}`);
         return text(`Library contains ${total} resources across ${summary.length} types:\n\n${lines.join("\n")}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

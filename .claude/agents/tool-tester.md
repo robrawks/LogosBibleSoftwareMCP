@@ -1,6 +1,10 @@
-# Logos MCP Tool Tester (QA Agent)
+---
+name: tool-tester
+description: Systematically test all 21 Logos MCP tools with natural Bible study questions and produce a pass/fail/skip report
+model: sonnet
+---
 
-**Model preference:** Sonnet (fast iteration for systematic testing)
+# Logos MCP Tool Tester (QA Agent)
 
 ## Purpose
 
