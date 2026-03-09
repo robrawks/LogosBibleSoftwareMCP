@@ -3,7 +3,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { SERVER_NAME, SERVER_VERSION } from "./config.js";
+import { existsSync } from "fs";
+import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
@@ -409,6 +410,36 @@ async function main() {
         const msg = e instanceof Error ? e.message : String(e);
         return err(`Library catalog error: ${msg}`);
       }
+    }
+  );
+
+  // ── 21. diagnose ────────────────────────────────────────────────────────
+  server.tool(
+    "diagnose",
+    "Check Logos data paths, database availability, and API configuration",
+    {},
+    async () => {
+      const lines: string[] = [];
+      lines.push("## Logos MCP Environment Diagnostics\n");
+
+      lines.push(`**LOGOS_DATA_DIR**: \`${LOGOS_DATA_DIR}\``);
+      lines.push(`  ${existsSync(LOGOS_DATA_DIR) ? "OK" : "MISSING"}\n`);
+
+      lines.push(`**LOGOS_CATALOG_DIR**: \`${LOGOS_CATALOG_DIR}\``);
+      lines.push(`  ${existsSync(LOGOS_CATALOG_DIR) ? "OK" : "MISSING"}\n`);
+
+      lines.push("### Databases\n");
+      for (const [name, path] of Object.entries(DB_PATHS)) {
+        const found = existsSync(path);
+        const icon = found ? "OK" : "MISSING";
+        lines.push(`- **${name}**: ${icon}  \`${path}\``);
+      }
+
+      lines.push("");
+      lines.push(`### API Configuration\n`);
+      lines.push(`**BIBLIA_API_KEY**: ${BIBLIA_API_KEY ? "set" : "NOT SET"}`);
+
+      return text(lines.join("\n"));
     }
   );
 
