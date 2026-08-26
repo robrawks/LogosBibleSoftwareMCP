@@ -369,15 +369,19 @@ async function main() {
   // ── 12. open_factbook ────────────────────────────────────────────────────
   server.tool(
     "open_factbook",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). Use to look up background information, or to position Logos before capture_panel_screenshot.",
-    { topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover')") },
-    async ({ topic }) => {
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or thing (e.g., 'Moses', 'Jerusalem', 'Passover'). Set kind to match the entity type — a wrong kind opens an empty Factbook panel. Use to look up background information, or to position Logos before capture_panel_screenshot.",
+    {
+      topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover'). Multi-word topics are camel-cased into a Factbook key; a raw key like 'bk.#Moses' or '#Moses' is passed through unchanged. Entities sharing a name carry a disambiguating qualifier in the key — e.g. 'Bethlehem (of Judah)' is '@BethlehemOfJudah'."),
+      kind: z.enum(["person", "place", "event", "thing"]).optional()
+        .describe("Entity type of the topic (default: person). Determines the Factbook key prefix: #person, @place, %event, $thing."),
+    },
+    async ({ topic, kind }) => {
       if (!(await isLogosRunning())) {
         return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
       }
-      const result = await openFactbook(topic);
+      const result = await openFactbook(topic, kind);
       return result.success
-        ? text(`Dispatched to Logos: Factbook entry for "${topic}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
+        ? text(`Dispatched to Logos: Factbook entry for "${topic}" (${kind ?? "person"}). This only opens the Logos UI on the user's screen — no data is returned to you. CAUTION: when a key fails to resolve, the Factbook panel keeps showing its PREVIOUS entry (it does not go blank or error) — so verify the entry title matches before trusting a screenshot, and on a mismatch retry with a different kind or a disambiguated key (e.g. '@BethlehemOfJudah'). Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
         : err(`Failed to open Factbook: ${result.error}`);
     }
   );
@@ -487,17 +491,19 @@ async function main() {
   // ── 17. search_all ────────────────────────────────────────────────────────
   server.tool(
     "search_all",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Search across ALL resources in the Logos library (not just Bible text). Use for broad research, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a search in the Logos UI: everything, Bible text only, or books/library only. Use for broad research, or to position Logos before capture_panel_screenshot.",
     {
       query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
+      kind: z.enum(["all", "bible", "books"]).optional()
+        .describe("Search scope: 'all' = everything (default), 'bible' = Bible text, 'books' = library resources."),
     },
-    async ({ query }) => {
+    async ({ query, kind }) => {
       if (!(await isLogosRunning())) {
         return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
       }
-      const result = await searchAll(query);
+      const result = await searchAll(query, kind);
       return result.success
-        ? text(`Dispatched to Logos: search for "${query}" across all resources. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'searchall') to see the results.`)
+        ? text(`Dispatched to Logos: ${kind ?? "all"} search for "${query}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'searchall') to see the results.`)
         : err(`Failed to open search: ${result.error}`);
     }
   );
