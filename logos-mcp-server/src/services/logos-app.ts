@@ -86,16 +86,23 @@ export async function searchAll(query: string): Promise<LogosCommandResult> {
 export async function isLogosRunning(): Promise<boolean> {
   try {
     if (process.platform === "win32") {
-      const { stdout } = await execFileAsync("tasklist", [
-        "/FI",
-        "IMAGENAME eq Logos.exe",
-        "/NH",
-      ]);
-      return stdout.toLowerCase().includes("logos.exe");
+      // Verbum is Logos's Catholic edition — same data layout and URL
+      // schemes, but the process is Verbum.exe.
+      for (const image of ["Logos.exe", "Verbum.exe"]) {
+        const { stdout } = await execFileAsync("tasklist", [
+          "/FI",
+          `IMAGENAME eq ${image}`,
+          "/NH",
+        ]);
+        if (stdout.toLowerCase().includes(image.toLowerCase())) {
+          return true;
+        }
+      }
+      return false;
     }
     const { stdout } = await execFileAsync("osascript", [
       "-e",
-      'tell application "System Events" to (name of processes) contains "Logos"',
+      'tell application "System Events" to (name of processes) contains "Logos" or (name of processes) contains "Verbum"',
     ]);
     return stdout.trim() === "true";
   } catch {

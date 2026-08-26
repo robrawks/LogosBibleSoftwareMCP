@@ -26,12 +26,25 @@ for (const envPath of [
 
 const IS_WINDOWS = process.platform === "win32";
 
-const LOGOS_ROOT = IS_WINDOWS
-  ? join(
-      process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
-      "Logos"
-    )
-  : join(homedir(), "Library", "Application Support", "Logos4");
+// Verbum (the Catholic edition of Logos) ships the same engine and data
+// layout under its own root directory. Prefer Logos when installed, else
+// fall back to Verbum; a missing root falls through to the Logos default
+// so error messages keep pointing at the expected location.
+function detectLogosRoot(): string {
+  const candidates = IS_WINDOWS
+    ? ["Logos", "Verbum"].map((app) =>
+        join(
+          process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
+          app
+        )
+      )
+    : ["Logos4", "Verbum"].map((app) =>
+        join(homedir(), "Library", "Application Support", app)
+      );
+  return candidates.find((p) => existsSync(p)) ?? candidates[0];
+}
+
+const LOGOS_ROOT = detectLogosRoot();
 const FALLBACK_PROFILE_ID = "a3wo155q.w14";
 
 interface ProfileDir {
