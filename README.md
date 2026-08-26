@@ -247,6 +247,27 @@ Each Logos install uses a randomly named instance directory (e.g. `a3wo155q.w14`
 }
 ```
 
+### Focus behavior on Windows
+
+On Windows, Logos/Verbum brings itself to the foreground every time a navigation command is dispatched. By default the server hands focus back to the window you were working in about a second later, so navigation and screenshot tools can run while you keep working (the Logos window still flashes briefly — that activation can't be suppressed). If you prefer the stock behavior where Logos comes to the foreground and stays there, set:
+
+```json
+"env": {
+  "LOGOS_RESTORE_FOCUS": "false"
+}
+```
+
+The `diagnose` tool reports which mode is active. This setting has no effect on macOS.
+
+### Windows requirements & limitations
+
+The Windows navigation, screenshot, and window-title support works out of the box for a normal desktop user — Windows 10/11 (which current Logos/Verbum requires anyway), no admin rights, and no permission prompts (Windows has no equivalent of macOS's Screen Recording consent). The helpers target Windows PowerShell 5.1, which ships with every Windows 10/11 install. Known limitations:
+
+- **Managed/corporate machines**: a Group Policy–enforced PowerShell execution policy, or WDAC/AppLocker constrained language mode, blocks the helper scripts (they compile small C# shims via `Add-Type`). Navigation still works — dispatch falls back to `rundll32` without focus restore — but `capture_panel_screenshot` and window titles will fail.
+- **Elevation mismatch**: if Logos/Verbum runs "as administrator" while the MCP server does not, Windows UIPI blocks both window capture and focus restore toward the elevated window. Run both at the same elevation (normally, neither elevated).
+- **Interactive session required**: running the server from a service, scheduled task, or SSH session that has no access to the interactive desktop cannot see or manipulate windows.
+- **Minimized window**: a minimized Logos window cannot be captured; the tool returns an explicit error asking for the window to be restored (un-minimized) first.
+
 ## Troubleshooting
 
 **Quick diagnostic check** - Run `cd logos-mcp-server && npm run diagnose` to verify all data paths, databases, and API configuration before launching Claude Code.
