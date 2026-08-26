@@ -371,7 +371,7 @@ async function main() {
     "open_factbook",
     "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or thing (e.g., 'Moses', 'Jerusalem', 'Passover'). Set kind to match the entity type — a wrong kind opens an empty Factbook panel. Use to look up background information, or to position Logos before capture_panel_screenshot.",
     {
-      topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover'). Multi-word topics are camel-cased into a Factbook key; a raw key like 'bk.#Moses' or '#Moses' is passed through unchanged."),
+      topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover'). Multi-word topics are camel-cased into a Factbook key; a raw key like 'bk.#Moses' or '#Moses' is passed through unchanged. Entities sharing a name carry a disambiguating qualifier in the key — e.g. 'Bethlehem (of Judah)' is '@BethlehemOfJudah'."),
       kind: z.enum(["person", "place", "event", "thing"]).optional()
         .describe("Entity type of the topic (default: person). Determines the Factbook key prefix: #person, @place, %event, $thing."),
     },
@@ -381,7 +381,7 @@ async function main() {
       }
       const result = await openFactbook(topic, kind);
       return result.success
-        ? text(`Dispatched to Logos: Factbook entry for "${topic}" (${kind ?? "person"}). This only opens the Logos UI on the user's screen — no data is returned to you. If the panel comes up empty, the entity kind or key spelling is likely wrong — ask the user, or retry with a different kind. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
+        ? text(`Dispatched to Logos: Factbook entry for "${topic}" (${kind ?? "person"}). This only opens the Logos UI on the user's screen — no data is returned to you. CAUTION: when a key fails to resolve, the Factbook panel keeps showing its PREVIOUS entry (it does not go blank or error) — so verify the entry title matches before trusting a screenshot, and on a mismatch retry with a different kind or a disambiguated key (e.g. '@BethlehemOfJudah'). Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
         : err(`Failed to open Factbook: ${result.error}`);
     }
   );
