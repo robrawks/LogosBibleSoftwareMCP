@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { existsSync } from "fs";
 import Database from "better-sqlite3";
-import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
+import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY, RESTORE_FOCUS } from "./config.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
@@ -704,6 +704,18 @@ async function main() {
       lines.push("");
       lines.push(`### API Configuration\n`);
       lines.push(`**BIBLIA_API_KEY**: ${BIBLIA_API_KEY ? "set" : "NOT SET"}`);
+
+      if (process.platform === "win32") {
+        lines.push("");
+        lines.push(`### Behavior\n`);
+        lines.push(
+          `**LOGOS_RESTORE_FOCUS**: ${RESTORE_FOCUS ? "enabled" : "disabled"} — ${
+            RESTORE_FOCUS
+              ? "focus returns to the user's window after each dispatch"
+              : "Logos stays in the foreground after each dispatch"
+          }`
+        );
+      }
 
       return text(lines.join("\n"));
     }

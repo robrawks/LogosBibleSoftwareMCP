@@ -247,6 +247,18 @@ Each Logos install uses a randomly named instance directory (e.g. `a3wo155q.w14`
 }
 ```
 
+### Focus behavior on Windows
+
+On Windows, Logos/Verbum brings itself to the foreground every time a navigation command is dispatched. By default the server hands focus back to the window you were working in about a second later, so navigation and screenshot tools can run while you keep working (the Logos window still flashes briefly — that activation can't be suppressed). If you prefer the stock behavior where Logos comes to the foreground and stays there, set:
+
+```json
+"env": {
+  "LOGOS_RESTORE_FOCUS": "false"
+}
+```
+
+The `diagnose` tool reports which mode is active. This setting has no effect on macOS.
+
 ## Troubleshooting
 
 **Quick diagnostic check** - Run `cd logos-mcp-server && npm run diagnose` to verify all data paths, databases, and API configuration before launching Claude Code.

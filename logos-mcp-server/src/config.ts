@@ -160,6 +160,16 @@ export const SCREENSHOT_TEMP_DIR = HELPER_CACHE_DIR;
 export const DEFAULT_CAPTURE_WAIT_MS = 4000;
 export const MAX_CAPTURE_WAIT_MS = 15000;
 
+// ─── Behavior Toggles ────────────────────────────────────────────────────────
+
+// Windows only: Logos/Verbum brings itself to the foreground on every URL
+// dispatch. By default the server hands focus back to the window the user
+// was working in; set LOGOS_RESTORE_FOCUS=false to keep the stock behavior
+// where Logos stays in the foreground.
+export const RESTORE_FOCUS = !["false", "0", "no", "off"].includes(
+  (process.env.LOGOS_RESTORE_FOCUS ?? "true").trim().toLowerCase()
+);
+
 // ─── Server Info ─────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = "logos-bible";

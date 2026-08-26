@@ -2,7 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { mkdirSync, writeFileSync } from "fs";
 import { toLogosUrlRef } from "./reference-parser.js";
-import { HELPER_CACHE_DIR, DISPATCH_HELPER } from "../config.js";
+import { HELPER_CACHE_DIR, DISPATCH_HELPER, RESTORE_FOCUS } from "../config.js";
 import type { LogosCommandResult } from "../types.js";
 
 const execFileAsync = promisify(execFile);
@@ -54,23 +54,29 @@ exit 0
 export async function openUrl(url: string): Promise<LogosCommandResult> {
   try {
     if (process.platform === "win32") {
-      try {
-        // Rewritten on every dispatch (tiny file) so a stale cached copy can
-        // never outlive a server upgrade.
-        mkdirSync(HELPER_CACHE_DIR, { recursive: true, mode: 0o700 });
-        writeFileSync(DISPATCH_HELPER, PS_DISPATCH_SOURCE);
-        await execFileAsync("powershell.exe", [
-          "-NoProfile",
-          "-NonInteractive",
-          "-ExecutionPolicy", "Bypass",
-          "-File", DISPATCH_HELPER,
-          "-Url", url,
-        ]);
-      } catch {
-        // PowerShell unavailable or helper failed — dispatch without focus
-        // restore. rundll32 takes the URL as one argument, avoiding cmd.exe
-        // mangling the `&` in query strings that `start` would require
-        // escaping for.
+      let dispatched = false;
+      if (RESTORE_FOCUS) {
+        try {
+          // Rewritten on every dispatch (tiny file) so a stale cached copy
+          // can never outlive a server upgrade.
+          mkdirSync(HELPER_CACHE_DIR, { recursive: true, mode: 0o700 });
+          writeFileSync(DISPATCH_HELPER, PS_DISPATCH_SOURCE);
+          await execFileAsync("powershell.exe", [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", DISPATCH_HELPER,
+            "-Url", url,
+          ]);
+          dispatched = true;
+        } catch {
+          // PowerShell unavailable or helper failed — fall through and
+          // dispatch without focus restore.
+        }
+      }
+      if (!dispatched) {
+        // rundll32 takes the URL as one argument, avoiding cmd.exe mangling
+        // the `&` in query strings that `start` would require escaping for.
         await execFileAsync("rundll32", ["url.dll,FileProtocolHandler", url]);
       }
     } else {
