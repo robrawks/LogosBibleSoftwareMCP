@@ -13,7 +13,14 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { toLogosUrlRef } from "./reference-parser.js";
-import { isLogosRunning } from "./logos-app.js";
+import {
+  isLogosRunning,
+  buildPassageUrl,
+  buildFactbookUrl,
+  buildWordStudyUrl,
+  buildGuideUrl,
+  buildSearchUrl,
+} from "./logos-app.js";
 import {
   HELPER_CACHE_DIR,
   WINDOW_HELPER_BIN,
@@ -141,9 +148,8 @@ export function buildNavigationUrl(
       if (!options.reference) {
         throw new Error("Bible panel requires a reference (e.g., 'Romans 12:1')");
       }
-      const logosRef = toLogosUrlRef(options.reference);
       return {
-        url: `logos4:///Bible/${logosRef}`,
+        url: buildPassageUrl(options.reference),
         description: `Bible: ${options.reference}`,
       };
     }
@@ -152,9 +158,8 @@ export function buildNavigationUrl(
       if (!options.reference) {
         throw new Error("Factbook panel requires a reference/topic (e.g., 'Moses')");
       }
-      const encoded = encodeURIComponent(options.reference);
       return {
-        url: `logos4:///Factbook?ref=${encoded}`,
+        url: buildFactbookUrl(options.reference),
         description: `Factbook: ${options.reference}`,
       };
     }
@@ -163,9 +168,8 @@ export function buildNavigationUrl(
       if (!options.reference) {
         throw new Error("Word Study panel requires a word (e.g., 'agape')");
       }
-      const encoded = encodeURIComponent(options.reference);
       return {
-        url: `logos4:///WordStudy?word=${encoded}`,
+        url: buildWordStudyUrl(options.reference),
         description: `Word Study: ${options.reference}`,
       };
     }
@@ -177,10 +181,8 @@ export function buildNavigationUrl(
       if (!options.guideType) {
         throw new Error("Guide panel requires a guide_type (e.g., 'Exegetical Guide')");
       }
-      const logosRef = toLogosUrlRef(options.reference);
-      const template = encodeURIComponent(options.guideType);
       return {
-        url: `logos4:///Guide?t=${template}&ref=bible.${logosRef}`,
+        url: buildGuideUrl(options.guideType, options.reference),
         description: `${options.guideType}: ${options.reference}`,
       };
     }
@@ -189,9 +191,8 @@ export function buildNavigationUrl(
       if (!options.reference) {
         throw new Error("Search panel requires a query");
       }
-      const encoded = encodeURIComponent(options.reference);
       return {
-        url: `logos4:///Search?type=Bible&q=${encoded}`,
+        url: buildSearchUrl(options.reference, "bible"),
         description: `Search: ${options.reference}`,
       };
     }
@@ -200,9 +201,8 @@ export function buildNavigationUrl(
       if (!options.reference) {
         throw new Error("Search All panel requires a query");
       }
-      const encoded = encodeURIComponent(options.reference);
       return {
-        url: `logos4:///Search?kind=AllSearch&syntax=v2&q=${encoded}`,
+        url: buildSearchUrl(options.reference, "all"),
         description: `Search All: ${options.reference}`,
       };
     }
