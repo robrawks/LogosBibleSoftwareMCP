@@ -145,9 +145,16 @@ export const LOGOS_URL_BASE = "logos4:";
 
 // Private per-user cache dir (not world-writable /tmp) so a local attacker
 // can't pre-plant a malicious binary or symlink at a predictable path.
-export const HELPER_CACHE_DIR = join(homedir(), "Library", "Caches", "logos-mcp");
+export const HELPER_CACHE_DIR = IS_WINDOWS
+  ? join(
+      process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
+      "logos-mcp",
+      "cache"
+    )
+  : join(homedir(), "Library", "Caches", "logos-mcp");
 export const WINDOW_HELPER_BIN = join(HELPER_CACHE_DIR, "logos-window-helper");
 export const WINDOW_HELPER_SRC = join(HELPER_CACHE_DIR, "logos-window-helper.m");
+export const WINDOWS_CAPTURE_HELPER = join(HELPER_CACHE_DIR, "capture-logos-window.ps1");
 export const SCREENSHOT_TEMP_DIR = HELPER_CACHE_DIR;
 export const DEFAULT_CAPTURE_WAIT_MS = 4000;
 export const MAX_CAPTURE_WAIT_MS = 15000;
