@@ -5,7 +5,7 @@ import type { LogosCommandResult } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
-async function openUrl(url: string): Promise<LogosCommandResult> {
+export async function openUrl(url: string): Promise<LogosCommandResult> {
   try {
     if (process.platform === "win32") {
       // rundll32 takes the URL as one argument — avoids cmd.exe mangling
@@ -23,13 +23,14 @@ async function openUrl(url: string): Promise<LogosCommandResult> {
 
 // ─── URL builders ────────────────────────────────────────────────────────────
 // logos4: links use the same semicolon syntax as the L4 links Logos itself
-// emits ("Copy location"), with values in ref.ly query encoding: '+' for
-// spaces, percent-escapes for '/', ':' and non-ASCII. The desktop parser
-// silently ignores commands with literal slashes in values or with the
+// emits ("Copy location"), with percent-encoded values: %20 for spaces,
+// percent-escapes for '/', ':' and non-ASCII. The desktop parser does NOT
+// form-decode '+' as a space (a t=Passage+Guide template fails to resolve),
+// and silently ignores commands with literal slashes in values or with the
 // slash-path/query-string forms this file used previously.
 
 function encodeValue(s: string): string {
-  return encodeURIComponent(s).replace(/%20/g, "+");
+  return encodeURIComponent(s);
 }
 
 export function buildPassageUrl(reference: string): string {
