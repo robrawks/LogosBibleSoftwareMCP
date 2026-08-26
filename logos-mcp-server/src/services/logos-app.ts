@@ -53,7 +53,7 @@ function lemmaLanguage(word: string): string {
 
 export function buildWordStudyUrl(word: string): string {
   const lemma = `lbs/${lemmaLanguage(word)}/${word.trim()}`;
-  return `logos4:Guide;t=Bible+Word+Study;lemma=${encodeValue(lemma)}`;
+  return `logos4:Guide;t=${encodeValue("Bible Word Study")};lemma=${encodeValue(lemma)}`;
 }
 
 // Factbook keys carry an entity-kind sigil: #person, @place, %event, $thing.
