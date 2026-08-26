@@ -13,7 +13,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 | Requirement | Details |
 |-------------|---------|
 | **macOS or Windows** | macOS uses the `open` command and AppleScript; Windows uses the registered `logos4:` protocol handler and `tasklist` |
-| **Logos Bible Software** | macOS: `/Applications/Logos.app` (tested with v48); Windows: standard install under `%LOCALAPPDATA%\Logos` |
+| **Logos Bible Software** | macOS: `/Applications/Logos.app` (tested with v48); Windows: standard install under `%LOCALAPPDATA%\Logos`. Verbum (the Catholic edition) is also supported — it registers the same URL protocols and uses the same data layout under its own directory |
 | **Node.js** | v18+ (v23+ recommended for native `fetch` support) |
 | **Claude Code** | Anthropic's CLI tool ([install guide](https://docs.anthropic.com/en/docs/claude-code)) |
 | **Biblia API Key** | Free key from [bibliaapi.com](https://bibliaapi.com/) |
@@ -228,6 +228,8 @@ The server auto-detects your Logos data by scanning for the per-install instance
 macOS:    ~/Library/Application Support/Logos4/Documents/<instance-id>/
 Windows:  %LOCALAPPDATA%\Logos\Documents\<instance-id>\
 ```
+
+Verbum installs are detected automatically when no Logos directory exists (`%LOCALAPPDATA%\Verbum` on Windows, `~/Library/Application Support/Verbum` on macOS).
 
 Each Logos install uses a randomly named instance directory (e.g. `a3wo155q.w14`); detection prefers the directory containing `LibraryCatalog/catalog.db`, so there is no fixed path to configure. If your Logos data lives at a non-standard path, the `LOGOS_DATA_DIR` and `LOGOS_CATALOG_DIR` environment variables remain available as manual overrides (set them in `.mcp.json`). The library catalog lives under `Data/` (not `Documents/`) — set `LOGOS_CATALOG_DIR` if your catalog path differs:
 
