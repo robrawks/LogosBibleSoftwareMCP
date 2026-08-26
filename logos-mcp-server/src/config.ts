@@ -155,6 +155,7 @@ export const HELPER_CACHE_DIR = IS_WINDOWS
 export const WINDOW_HELPER_BIN = join(HELPER_CACHE_DIR, "logos-window-helper");
 export const WINDOW_HELPER_SRC = join(HELPER_CACHE_DIR, "logos-window-helper.m");
 export const WINDOWS_CAPTURE_HELPER = join(HELPER_CACHE_DIR, "capture-logos-window.ps1");
+export const DISPATCH_HELPER = join(HELPER_CACHE_DIR, "dispatch-logos-url.ps1");
 export const SCREENSHOT_TEMP_DIR = HELPER_CACHE_DIR;
 export const DEFAULT_CAPTURE_WAIT_MS = 4000;
 export const MAX_CAPTURE_WAIT_MS = 15000;

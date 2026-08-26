@@ -1,16 +1,78 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { mkdirSync, writeFileSync } from "fs";
 import { toLogosUrlRef } from "./reference-parser.js";
+import { HELPER_CACHE_DIR, DISPATCH_HELPER } from "../config.js";
 import type { LogosCommandResult } from "../types.js";
 
 const execFileAsync = promisify(execFile);
 
+// On Windows, Logos/Verbum brings itself to the foreground whenever its URL
+// protocol is invoked, yanking focus from whatever the user is doing. This
+// helper dispatches the URL, waits for that self-activation to settle, and
+// then hands focus back to the window that had it. Trade-off: the app still
+// flashes briefly, and keystrokes typed in that sub-second window could land
+// in Logos.
+const PS_DISPATCH_SOURCE = `
+param([Parameter(Mandatory=$true)][string]$Url)
+$ErrorActionPreference = "Stop"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class LogosMcpFocus {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+}
+"@
+$before = [LogosMcpFocus]::GetForegroundWindow()
+$beforePid = 0
+[void][LogosMcpFocus]::GetWindowThreadProcessId($before, [ref]$beforePid)
+$beforeName = ""
+try { $beforeName = (Get-Process -Id $beforePid -ErrorAction Stop).ProcessName } catch {}
+Start-Process $Url
+# When the user was already in Logos/Verbum (or nothing had focus), leave
+# focus alone.
+if ($before -ne [IntPtr]::Zero -and $beforeName -notmatch "^(Logos|Verbum)$") {
+  Start-Sleep -Milliseconds 700  # restoring before self-activation settles gets overridden
+  for ($i = 0; $i -lt 5; $i++) {
+    if ([LogosMcpFocus]::GetForegroundWindow() -ne $before) {
+      # An Alt-key tap lifts the SetForegroundWindow restriction that
+      # normally stops background processes from re-assigning focus.
+      [LogosMcpFocus]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+      [void][LogosMcpFocus]::SetForegroundWindow($before)
+      [LogosMcpFocus]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+    }
+    Start-Sleep -Milliseconds 200
+    if ([LogosMcpFocus]::GetForegroundWindow() -eq $before) { break }
+  }
+}
+exit 0
+`;
+
 export async function openUrl(url: string): Promise<LogosCommandResult> {
   try {
     if (process.platform === "win32") {
-      // rundll32 takes the URL as one argument — avoids cmd.exe mangling
-      // the `&` in query strings that `start` would require escaping for.
-      await execFileAsync("rundll32", ["url.dll,FileProtocolHandler", url]);
+      try {
+        // Rewritten on every dispatch (tiny file) so a stale cached copy can
+        // never outlive a server upgrade.
+        mkdirSync(HELPER_CACHE_DIR, { recursive: true, mode: 0o700 });
+        writeFileSync(DISPATCH_HELPER, PS_DISPATCH_SOURCE);
+        await execFileAsync("powershell.exe", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy", "Bypass",
+          "-File", DISPATCH_HELPER,
+          "-Url", url,
+        ]);
+      } catch {
+        // PowerShell unavailable or helper failed — dispatch without focus
+        // restore. rundll32 takes the URL as one argument, avoiding cmd.exe
+        // mangling the `&` in query strings that `start` would require
+        // escaping for.
+        await execFileAsync("rundll32", ["url.dll,FileProtocolHandler", url]);
+      }
     } else {
       await execFileAsync("open", [url]);
     }
