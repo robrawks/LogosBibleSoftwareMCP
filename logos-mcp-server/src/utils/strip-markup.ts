@@ -3,18 +3,32 @@
  */
 
 /**
- * Remove XML/HTML tags and decode common entities.
- * Returns null if input is null or result is empty.
+ * Decode the XML entities Logos actually emits, including numeric ones.
+ *
+ * `&amp;` is decoded last: doing it first would let a literal "&amp;gt;"
+ * collapse all the way to ">" instead of stopping at "&gt;".
  */
-export function stripXml(text: string | null): string | null {
-  if (!text) return null;
-  const result = text
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
+export function decodeEntities(text: string): string {
+  return text
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Remove XML/HTML tags and decode common entities.
+ * Returns null if input is null or result is empty.
+ *
+ * Tags are stripped before entities are decoded, so an escaped "&lt;b&gt;"
+ * survives as literal text instead of being mistaken for a tag.
+ */
+export function stripXml(text: string | null): string | null {
+  if (!text) return null;
+  const result = decodeEntities(text.replace(/<[^>]+>/g, ""))
     .replace(/\s+/g, " ")
     .trim();
   return result.length > 0 ? result : null;
@@ -38,13 +52,16 @@ export function stripRichText(text: string | null): string | null {
 
   const lines: string[] = [];
   for (const para of paragraphs) {
-    // Extract all Text="..." or Text='...' attribute values
+    // Extract all Text="..." or Text='...' attribute values. The value must be
+    // matched against its OWN opening quote: a single pattern of [^"']* stops
+    // at the first apostrophe, truncating "He's worked salvation" to "He".
     const texts: string[] = [];
-    const regex = /Text=["']([^"']*)["']/g;
+    const regex = /Text=(?:"([^"]*)"|'([^']*)')/g;
     let match: RegExpExecArray | null;
     while ((match = regex.exec(para)) !== null) {
-      if (match[1].trim()) {
-        texts.push(match[1]);
+      const raw = match[1] ?? match[2] ?? "";
+      if (raw.trim()) {
+        texts.push(decodeEntities(raw));
       }
     }
     if (texts.length > 0) {

@@ -8,15 +8,16 @@ import Database from "better-sqlite3";
 import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
 
 // Service imports
-import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
+import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles, getPassageWithContext } from "./services/biblia-api.js";
 import { navigateToPassage, openWordStudy, openFactbook, openResource, openGuide, searchAll, isLogosRunning } from "./services/logos-app.js";
-import { expandRange, parseReference } from "./services/reference-parser.js";
+import { parseReference } from "./services/reference-parser.js";
 import {
   getUserHighlights,
   getClippings,
   getFavorites,
   getWorkflowTemplates,
   getWorkflowInstances,
+  bibleRawToHuman,
   getReadingProgress,
   getUserNotes,
 } from "./services/sqlite-reader.js";
@@ -118,8 +119,7 @@ async function main() {
     },
     async ({ passage, context_verses, bible }) => {
       try {
-        const expanded = expandRange(passage, context_verses ?? 5);
-        const result = await getBibleText(expanded, bible);
+        const result = await getPassageWithContext(passage, context_verses ?? 5, bible);
         return text(`**${result.passage}** (${result.bible}) — context around ${passage}\n\n${result.text}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -134,19 +134,26 @@ async function main() {
   // ── 4. search_bible ──────────────────────────────────────────────────────
   server.tool(
     "search_bible",
-    "Search the Bible for a word, phrase, or topic. Returns matching verses with previews. Useful for topical studies and finding related passages.",
+    "Search the Bible for a word, phrase, or topic. Returns matching verses with previews. Useful for topical studies and finding related passages. NOTE: multiple words are matched as OR by default — 'traditions delivered handed down' returns any verse containing any of those terms. Pass match='phrase' to find the words together as a phrase.",
     {
       query: z.string().describe("Search terms (e.g., 'justification by faith')"),
+      match: z.enum(["any", "phrase"]).optional()
+        .describe("'any' (default) matches verses containing ANY of the words; 'phrase' matches the words together as a contiguous phrase."),
       limit: z.number().optional().describe("Max results (default: 20)"),
       bible: z.string().optional()
         .describe("Bible version code, case-insensitive (default LEB; also KJV, ASV, DARBY, YLT, WEB and more). Served by the free Biblia web API (requires network + BIBLIA_API_KEY), NOT the user's Logos library. Call get_available_bibles for the full list."),
     },
-    async ({ query, limit, bible }) => {
+    async ({ query, match, limit, bible }) => {
       try {
-        const result = await searchBible(query, { limit, bible });
-        if (result.resultCount === 0) return text(`No results for "${query}".`);
+        const result = await searchBible(query, { limit, bible, match });
+        if (result.resultCount === 0) {
+          const hint = (match ?? "any") === "phrase"
+            ? " Try match='any' to match the words separately."
+            : "";
+          return text(`No results for ${result.query}.${hint}`);
+        }
         const lines = result.results.map((r) => `**${r.title}**: ${r.preview}`);
-        return text(`Found ${result.resultCount} results for "${query}":\n\n${lines.join("\n\n")}`);
+        return text(`Found ${result.resultCount} results for ${result.query}:\n\n${lines.join("\n\n")}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         const note = msg.includes("BIBLIA_API_KEY")
@@ -236,7 +243,7 @@ async function main() {
         if (passage) {
           return text(`No notes matched passage '${passage}'. Try a different passage, or call get_user_notes without the passage filter to see all notes.`);
         }
-        return text("No notes found — the Logos notes database appears empty.");
+        return text("No notes matched this query.");
       }
       const lines = notes.map((n) => {
         const header = n.notebookTitle ? `[${n.notebookTitle}]` : "[No notebook]";
@@ -252,25 +259,43 @@ async function main() {
   // ── 7. get_user_highlights ───────────────────────────────────────────────
   server.tool(
     "get_user_highlights",
-    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns the highlight style and the resource title it lives in.",
+    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns the Bible reference (when the highlight is anchored to a Bible text), the highlight style, and the resource title it lives in. Filter by passage to find highlights in a given book, e.g. passage: 'Job'.",
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       style_name: z.string().optional().describe("Filter by highlight style name"),
+      passage: z
+        .string()
+        .optional()
+        .describe("Filter to highlights anchored in this book, e.g. 'Job' or 'Ephesians 1'"),
       limit: z.number().optional().describe("Max highlights to return (default: 50)"),
     },
-    async ({ resource_id, style_name, limit }) => {
+    async ({ resource_id, style_name, passage, limit }) => {
       const highlights = getUserHighlights({
         resourceId: resource_id,
         styleName: style_name,
+        passage,
         limit: limit ?? 50,
       });
       if (highlights.length === 0) {
-        const filter = resource_id ? `resource '${resource_id}'` : style_name ? `style '${style_name}'` : null;
+        const filter = passage
+          ? `passage '${passage}'`
+          : resource_id
+            ? `resource '${resource_id}'`
+            : style_name
+              ? `style '${style_name}'`
+              : null;
         return text(filter
           ? `No highlights matched ${filter}. Try removing the filters to see all highlights.`
-          : "No highlights found — the Logos highlights database appears empty.");
+          : "No highlights matched this query.");
       }
-      const lines = highlights.map((h) => `- **${h.styleName}**: ${h.resourceTitle ?? h.resourceId}`);
+      // Lead with the reference when there is one: it is what distinguishes two
+      // highlights that share a style and a resource.
+      const lines = highlights.map((h) => {
+        const where = h.resourceTitle ?? h.resourceId;
+        return h.anchorReference
+          ? `- **${h.anchorReference}** — ${h.styleName} (${where})`
+          : `- **${h.styleName}**: ${where}`;
+      });
       return text(`Found ${highlights.length} highlights:\n\n${lines.join("\n")}`);
     }
   );
@@ -295,7 +320,7 @@ async function main() {
         const filter = resource_id ? `resource '${resource_id}'` : tag ? `tag '${tag}'` : null;
         return text(filter
           ? `No clippings matched ${filter}. Try removing the filters to see all clippings.`
-          : "No clippings found — the Logos clippings database appears empty.");
+          : "No clippings matched this query.");
       }
 
       const lines = clippings.map((c) => {
@@ -320,7 +345,7 @@ async function main() {
     },
     async ({ limit }) => {
       const favorites = getFavorites(limit ?? 30);
-      if (favorites.length === 0) return text("No favorites found — the Logos favorites database appears empty.");
+      if (favorites.length === 0) return text("No favorites matched this query.");
       const lines = favorites.map((f) => `- **${f.title}** → ${f.appCommand}`);
       return text(`Found ${favorites.length} favorites:\n\n${lines.join("\n")}`);
     }
@@ -402,9 +427,15 @@ async function main() {
       if (include_instances !== false) {
         const instances = getWorkflowInstances(instance_limit ?? 10);
         if (instances.length > 0) {
+          // The instance key is a raw Logos anchor ("bible.70.1.4-70.1.14").
+          // Decode it to a canonical reference. Titles usually carry the
+          // passage too, but they are free text and may not; the key always
+          // has it. Non-bible keys (topic studies, e.g. "bk.%goodnessOfGod")
+          // do not decode and stay raw.
           const iLines = instances.map((i) => {
             const status = i.completedDate ? "Completed" : `Step: ${i.currentStep ?? "unknown"}`;
-            return `- **${i.title}** (${i.key}) — ${status}, ${i.completedSteps.length} steps done`;
+            const subject = bibleRawToHuman(i.key) ?? i.key;
+            return `- **${i.title}** — ${subject} · ${status}, ${i.completedSteps.length} steps done`;
           });
           sections.push(`## Active Instances\n\n${iLines.join("\n")}`);
         }
@@ -430,7 +461,7 @@ async function main() {
           if (type) {
             return text(`No resources matched type '${type}'. The type filter accepts either a human label from get_resource_types (e.g. 'Commentary') or a raw dotted type (e.g. 'text.monograph.commentary.bible'). Call get_resource_types to see valid labels, or remove the filter.`);
           }
-          return text("No matching resources found in library catalog — the catalog appears empty.");
+          return text("No matches for this query.");
         }
         const lines = resources.map((r) => {
           const authorStr = r.authors ? ` — ${r.authors}` : "";
@@ -479,7 +510,7 @@ async function main() {
       }
       const result = await openGuide(guide_type, reference);
       return result.success
-        ? text(`Dispatched to Logos: ${guide_type} for ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'guide') to see the results.`)
+        ? text(`Dispatched to Logos: ${guide_type} for ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you.${result.warning ? ` Note: ${result.warning}` : ""} Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'guide') to see the results.`)
         : err(`Failed to open guide: ${result.error}`);
     }
   );

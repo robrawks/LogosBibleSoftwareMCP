@@ -33,11 +33,18 @@ function escapeLike(s: string): string {
 export function getUserHighlights(options: {
   resourceId?: string;
   styleName?: string;
+  passage?: string;
   limit?: number;
 } = {}): HighlightResult[] {
+  // The passage filter needs the resolved anchor, which only exists after the
+  // rows come back, so a SQL LIMIT would filter just the newest N highlights and
+  // hide every older match. Fetch unlimited when filtering, cap afterwards.
+  const limitInSql = options.limit !== undefined && !options.passage;
+  const query = { ...options, limit: limitInSql ? options.limit : undefined };
+
   let results: HighlightResult[];
   try {
-    results = queryVisualMarkupHighlights(options);
+    results = queryVisualMarkupHighlights(query);
   } catch {
     // visualmarkup.db may be missing entirely on current installs.
     results = [];
@@ -45,9 +52,27 @@ export function getUserHighlights(options: {
   if (results.length === 0) {
     // Modern Logos stores highlights as Kind=1 notes in notestool.db;
     // visualmarkup.db is the legacy store and is empty on current installs.
-    results = getHighlightsFromNotes(options);
+    results = getHighlightsFromNotes(query);
   }
-  return withResourceTitles(results);
+
+  const filtered = filterHighlightsByPassage(results, options.passage);
+  const capped =
+    limitInSql || options.limit === undefined ? filtered : filtered.slice(0, options.limit);
+  return withResourceTitles(capped);
+}
+
+// Keep highlights whose resolved anchor mentions the requested book, mirroring
+// filterNotesByPassage. Highlights anchored to a resource rather than a Bible
+// text have no reference and are therefore never a passage match.
+function filterHighlightsByPassage(
+  highlights: HighlightResult[],
+  passage?: string
+): HighlightResult[] {
+  if (!passage) return highlights;
+  const book = extractBookName(passage);
+  if (!book) return highlights;
+  const needle = book.toLowerCase();
+  return highlights.filter((h) => h.anchorReference?.toLowerCase().includes(needle));
 }
 
 function queryVisualMarkupHighlights(options: {
@@ -88,9 +113,24 @@ function queryVisualMarkupHighlights(options: {
       styleName: r.MarkupStyleName,
       syncDate: r.SyncDate,
       resourceTitle: null, // filled in by withResourceTitles below
+      // The legacy markup table stores no anchor reference.
+      anchorReference: null,
     }));
   } finally {
     db.close();
+  }
+}
+
+// NoteAnchorFacetReferences is absent on older notestool.db schemas; probe once
+// per query so a missing table degrades to AnchorsJson parsing instead of throwing.
+function facetReferencesAvailable(db: Database.Database): boolean {
+  try {
+    const row = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+      .get("NoteAnchorFacetReferences");
+    return row !== undefined;
+  } catch {
+    return false;
   }
 }
 
@@ -101,8 +141,22 @@ function getHighlightsFromNotes(options: {
 }): HighlightResult[] {
   const db = openDb(DB_PATHS.notes);
   try {
+    // Logos resolves each anchor itself into NoteAnchorFacetReferences, which
+    // stores the raw reference string plus the book number. Prefer that over
+    // re-parsing AnchorsJson: it is the app's own resolution, and it is the only
+    // place a highlight's passage is recorded at all.
+    //
+    // Correlated scalar subqueries (rather than a join) keep this to one row per
+    // highlight — a highlight with several anchors would otherwise be duplicated.
+    // Ordering by AnchorIndex picks the first anchor deterministically.
+    const facet = facetReferencesAvailable(db)
+      ? `(SELECT f.Reference FROM NoteAnchorFacetReferences f
+           WHERE f.NoteId = n.NoteId ORDER BY f.AnchorIndex LIMIT 1)`
+      : "NULL";
+
     let sql = `
-      SELECT r.ResourceId, n.AnchorsJson, s.Name AS StyleName, n.ModifiedDate
+      SELECT r.ResourceId, n.AnchorsJson, s.Name AS StyleName, n.ModifiedDate,
+             ${facet} AS FacetReference
       FROM Notes n
       LEFT JOIN NoteStyles s ON n.NoteStyleId = s.NoteStyleId
       LEFT JOIN ResourceIds r ON n.AnchorResourceIdId = r.ResourceIdId
@@ -129,6 +183,7 @@ function getHighlightsFromNotes(options: {
       AnchorsJson: string | null;
       StyleName: string | null;
       ModifiedDate: string | null;
+      FacetReference: string | null;
     }>;
 
     return rows.map((r) => ({
@@ -137,6 +192,10 @@ function getHighlightsFromNotes(options: {
       styleName: r.StyleName ?? "",
       syncDate: r.ModifiedDate,
       resourceTitle: null, // filled in by withResourceTitles below
+      // Fall back to AnchorsJson when Logos has not written a facet row.
+      anchorReference:
+        (r.FacetReference ? bibleRawToHuman(r.FacetReference) : null) ??
+        parseAnchorReference(r.AnchorsJson),
     }));
   } finally {
     db.close();
@@ -445,7 +504,11 @@ export function getUserNotes(options: {
 
     sql += " ORDER BY n.ModifiedDate DESC";
 
-    if (options.limit) {
+    // The passage filter runs in JS (it needs AnchorsJson parsed), so pushing
+    // LIMIT into SQL here would filter only the newest N notes and silently
+    // hide every older match. Defer the limit to after filtering in that case.
+    const limitInSql = options.limit && !options.passage;
+    if (limitInSql) {
       sql += " LIMIT ?";
       params.push(options.limit);
     }
@@ -476,7 +539,8 @@ export function getUserNotes(options: {
       }))
       .filter((n) => n.content !== null);
 
-    return filterNotesByPassage(notes, options.passage);
+    const filtered = filterNotesByPassage(notes, options.passage);
+    return limitInSql || !options.limit ? filtered : filtered.slice(0, options.limit);
   } finally {
     db.close();
   }
@@ -520,6 +584,15 @@ function safeParseArray(json: string | null): string[] {
 // Logos Bible book numbers (standard Protestant canon order, 1-66). Numbers
 // outside this range (e.g. deuterocanonical books in some installs) are left
 // unmapped and parse to null — best-effort only.
+// Logos book numbers, NOT Protestant canonical order. Logos numbers the
+// deuterocanonical books at 40-60, so the New Testament starts at 61 (Matthew)
+// and runs to 87 (Revelation). Confirmed against this install's own notes:
+// bible.68.5.11-68.5.21 is 2 Corinthians 5:11-21, bible.70.1.4-70.1.14 is
+// Ephesians 1:4-14, and bible+esv.80.1.2 is James 1:2.
+//
+// 40-60 are deliberately absent: the exact deuterocanonical ordering is not
+// verified against real data here, and returning null beats naming the wrong
+// book. bibleRawToHuman() returns null for any number missing from this table.
 const BOOKS_BY_NUMBER: Record<number, string> = {
   1: "Genesis", 2: "Exodus", 3: "Leviticus", 4: "Numbers", 5: "Deuteronomy",
   6: "Joshua", 7: "Judges", 8: "Ruth", 9: "1 Samuel", 10: "2 Samuel",
@@ -529,21 +602,25 @@ const BOOKS_BY_NUMBER: Record<number, string> = {
   24: "Jeremiah", 25: "Lamentations", 26: "Ezekiel", 27: "Daniel",
   28: "Hosea", 29: "Joel", 30: "Amos", 31: "Obadiah", 32: "Jonah",
   33: "Micah", 34: "Nahum", 35: "Habakkuk", 36: "Zephaniah", 37: "Haggai",
-  38: "Zechariah", 39: "Malachi", 40: "Matthew", 41: "Mark", 42: "Luke",
-  43: "John", 44: "Acts", 45: "Romans", 46: "1 Corinthians",
-  47: "2 Corinthians", 48: "Galatians", 49: "Ephesians", 50: "Philippians",
-  51: "Colossians", 52: "1 Thessalonians", 53: "2 Thessalonians",
-  54: "1 Timothy", 55: "2 Timothy", 56: "Titus", 57: "Philemon",
-  58: "Hebrews", 59: "James", 60: "1 Peter", 61: "2 Peter", 62: "1 John",
-  63: "2 John", 64: "3 John", 65: "Jude", 66: "Revelation",
+  38: "Zechariah", 39: "Malachi",
+  61: "Matthew", 62: "Mark", 63: "Luke", 64: "John", 65: "Acts",
+  66: "Romans", 67: "1 Corinthians", 68: "2 Corinthians", 69: "Galatians",
+  70: "Ephesians", 71: "Philippians", 72: "Colossians",
+  73: "1 Thessalonians", 74: "2 Thessalonians", 75: "1 Timothy",
+  76: "2 Timothy", 77: "Titus", 78: "Philemon", 79: "Hebrews", 80: "James",
+  81: "1 Peter", 82: "2 Peter", 83: "1 John", 84: "2 John", 85: "3 John",
+  86: "Jude", 87: "Revelation",
 };
 
 // Matches raw Logos reference strings found in AnchorsJson, e.g.:
-//   "bible.44.3.21"              -> Acts 3:21
-//   "bible.44.3.21-44.3.23"      -> Acts 3:21-23
+//   "bible.65.3.21"              -> Acts 3:21
+//   "bible.65.3.21-65.3.23"      -> Acts 3:21-23
+//   "bible.70"                   -> Ephesians (whole-book anchor)
 //   "bible+kjv.6.1.8"            -> Joshua 1:8 (version qualifier ignored)
+// Chapter and verse are both optional: Logos writes whole-book anchors as plain
+// "bible.70" (Ephesians), which a chapter-mandatory pattern silently rejects.
 const BIBLE_RAW_RE =
-  /^bible(?:\+[a-z0-9]*)?\.(\d+)\.(\d+)(?:\.(\d+))?(?:-(\d+)\.(\d+)(?:\.(\d+))?)?$/i;
+  /^bible(?:\+[a-z0-9]*)?\.(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-(\d+)(?:\.(\d+)(?:\.(\d+))?)?)?$/i;
 
 // Best-effort human-readable Bible reference from a note's AnchorsJson.
 // Returns null when the JSON is missing/malformed or no bible reference anchor
@@ -570,17 +647,26 @@ export function parseAnchorReference(anchorsJson: string | null): string | null 
   return null;
 }
 
-function bibleRawToHuman(raw: string): string | null {
+/**
+ * Decode a raw Logos bible reference ("bible.70.1.4-70.1.14") to a human one
+ * ("Ephesians 1:4-14"). Returns null for anything that is not a bible
+ * reference — workflow keys, for instance, may be topic keys like
+ * "bk.%goodnessOfGod". Never throws.
+ */
+export function bibleRawToHuman(raw: string): string | null {
   const m = raw.match(BIBLE_RAW_RE);
   if (!m) return null;
   const book = BOOKS_BY_NUMBER[parseInt(m[1], 10)];
   if (!book) return null;
 
-  const chapter = parseInt(m[2], 10);
+  const chapter = m[2] ? parseInt(m[2], 10) : undefined;
   const verse = m[3] ? parseInt(m[3], 10) : undefined;
   const endBook = m[4] ? BOOKS_BY_NUMBER[parseInt(m[4], 10)] : undefined;
   const endChapter = m[5] ? parseInt(m[5], 10) : undefined;
   const endVerse = m[6] ? parseInt(m[6], 10) : undefined;
+
+  // A book-only anchor renders as just the book name.
+  if (chapter === undefined) return book;
 
   let result = `${book} ${chapter}`;
   if (verse !== undefined) result += `:${verse}`;

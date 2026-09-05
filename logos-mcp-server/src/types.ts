@@ -46,6 +46,8 @@ export interface LogosCommandResult {
   success: boolean;
   command: string;
   error?: string;
+  /** Non-fatal caveat about what Logos actually did with the URL. */
+  warning?: string;
 }
 
 // ─── SQLite / User Data Types ────────────────────────────────────────────────
@@ -57,6 +59,12 @@ export interface HighlightResult {
   syncDate: string | null;
   /** Human-readable title of the resource this highlight lives in (best-effort, null when the catalog is unavailable). */
   resourceTitle: string | null;
+  /**
+   * Human-readable Bible reference for the highlighted passage, e.g. "Job 42:7-9".
+   * Null when the highlight sits in a resource rather than a Bible text, or when
+   * Logos has not resolved an anchor for it.
+   */
+  anchorReference: string | null;
 }
 
 export interface FavoriteResult {
