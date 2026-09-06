@@ -14,6 +14,7 @@ import { readFile, unlink } from "fs/promises";
 import { join } from "path";
 import { toLogosUrlRef } from "./reference-parser.js";
 import { isLogosRunning } from "./logos-app.js";
+import { withUiLock } from "../utils/ui-lock.js";
 import {
   HELPER_CACHE_DIR,
   WINDOW_HELPER_BIN,
@@ -70,7 +71,8 @@ int main(int argc, const char * argv[]) {
 
 // ─── Helper compilation ─────────────────────────────────────────────────────
 
-async function ensureHelper(): Promise<void> {
+/** Compile the CGWindowList helper if missing (exported so installers can pre-build it). */
+export async function ensureHelper(): Promise<void> {
   if (!existsSync(WINDOW_HELPER_BIN)) {
     mkdirSync(HELPER_CACHE_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(WINDOW_HELPER_SRC, OBJ_C_SOURCE);
@@ -272,7 +274,20 @@ async function maybeDownscale(tempPath: string, maxWidth: number): Promise<void>
  * only controls which panel Logos navigates to before the screenshot is
  * taken — it does not crop the resulting image.
  */
-export async function captureLogosPanel(
+export function captureLogosPanel(
+  panelType: CaptureToolType,
+  options: {
+    reference?: string;
+    guideType?: string;
+    resourceId?: string;
+    waitMs?: number;
+    maxWidth?: number;
+  } = {}
+): Promise<ScreenshotResult> {
+  return withUiLock(() => captureLogosPanelUnlocked(panelType, options));
+}
+
+async function captureLogosPanelUnlocked(
   panelType: CaptureToolType,
   options: {
     reference?: string;

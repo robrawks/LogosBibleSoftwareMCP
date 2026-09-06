@@ -1,4 +1,5 @@
 import { BIBLIA_API_KEY, BIBLIA_API_BASE, DEFAULT_BIBLE } from "../config.js";
+import { toBibliaRef } from "./reference-parser.js";
 import type { BibleTextResult, BibleSearchResult, BibleSearchHit, ScanResult, CompareResult, BibleInfo } from "../types.js";
 
 async function bibliaFetch(path: string, params: Record<string, string>): Promise<unknown> {
@@ -33,12 +34,25 @@ export async function getBibleText(
 ): Promise<BibleTextResult> {
   // Biblia version codes are uppercase; accept any case from callers.
   bible = bible.toUpperCase();
-  const text = await bibliaFetch(`/content/${bible}.txt`, { passage });
+  // Biblia only understands English book names; normalise Spanish names and
+  // abbreviations through the reference parser, but pass anything it cannot
+  // parse straight through so Biblia's own (more permissive) parser gets a go.
+  const apiPassage = normalizeForBiblia(passage);
+  const text = await bibliaFetch(`/content/${bible}.txt`, { passage: apiPassage });
   return {
     passage,
     text: String(text).trim(),
     bible,
   };
+}
+
+/** English-canonical passage for the Biblia API ("Romanos 8:28" → "Romans 8:28"). */
+export function normalizeForBiblia(passage: string): string {
+  try {
+    return toBibliaRef(passage).replace(/\+/g, " ");
+  } catch {
+    return passage;
+  }
 }
 
 // Biblia returns resultCount: -1 when the total is unknown; fall back to the

@@ -145,6 +145,12 @@ export interface CatalogResource {
   subjects: string | null;
   description: string | null;
   publicationDate: string | null;
+  /** ISO language codes as stored by Logos, e.g. "es" or "en grc" */
+  languages: string | null;
+  /** true when the catalog marks the resource as licensed/downloaded (Availability = 2) */
+  licensed: boolean;
+  /** Publisher(s) as stored by Logos, e.g. "Eerdmans" */
+  publishers: string | null;
 }
 
 export interface ResourceTypeSummary {
@@ -222,4 +228,59 @@ export interface ToolResult {
     | { type: "image"; data: string; mimeType: string }
   >;
   isError?: boolean;
+}
+
+// ─── User Documents (Sermon Builder, Reading Plans, Passage Lists) ──────────
+
+export interface SermonSummary {
+  id: number;
+  title: string;
+  series: string | null;
+  seriesNumber: number | null;
+  language: string | null;
+  occasions: Array<{ date?: string; venue?: string; service?: string }>;
+  tags: string[];
+  audience: string[];
+  description: string | null;
+  modifiedDate: string;
+  blockCount: number;
+}
+
+export interface SermonBlock {
+  kind: string;
+  indent: number;
+  text: string;
+  /** Human-readable Bible reference for passage blocks */
+  reference: string | null;
+  /** Source resource title for passage/clipping blocks */
+  source: string | null;
+}
+
+export interface SermonDocument extends SermonSummary {
+  blocks: SermonBlock[];
+  markdown: string;
+}
+
+export interface ReadingPlanSummary {
+  id: number;
+  title: string;
+  resourceId: string | null;
+  resourceTitle: string | null;
+  startDate: string | null;
+  frequency: string | null;
+  totalSessions: number;
+  readSessions: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  nextUnread: { date: string; reading: string } | null;
+  isArchived: boolean;
+  modifiedDate: string | null;
+}
+
+export interface PassageListSummary {
+  id: number;
+  title: string;
+  itemCount: number;
+  modifiedDate: string | null;
+  references: string[];
 }

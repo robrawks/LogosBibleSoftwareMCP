@@ -136,22 +136,113 @@ const ALIAS_TO_BOOK: Record<string, string> = {
   "Rev": "Revelation",
 };
 
+
+// Spanish book names and common abbreviations (Reina-Valera usage) ->
+// canonical English name. Accents are optional at lookup time (see
+// normalizeName), so "Génesis" and "Genesis" both resolve.
+const SPANISH_TO_BOOK: Record<string, string> = {
+  "Génesis": "Genesis", "Gn": "Genesis", "Gén": "Genesis",
+  "Éxodo": "Exodus", "Éx": "Exodus", "Exo": "Exodus",
+  "Levítico": "Leviticus", "Lv": "Leviticus",
+  "Números": "Numbers", "Nm": "Numbers", "Núm": "Numbers",
+  "Deuteronomio": "Deuteronomy", "Dt": "Deuteronomy",
+  "Josué": "Joshua", "Jos": "Joshua",
+  "Jueces": "Judges", "Jue": "Judges",
+  "Rut": "Ruth", "Rt": "Ruth",
+  "1 Samuel": "1 Samuel", "1 S": "1 Samuel", "1S": "1 Samuel",
+  "2 Samuel": "2 Samuel", "2 S": "2 Samuel", "2S": "2 Samuel",
+  "1 Reyes": "1 Kings", "1 R": "1 Kings", "1R": "1 Kings",
+  "2 Reyes": "2 Kings", "2 R": "2 Kings", "2R": "2 Kings",
+  "1 Crónicas": "1 Chronicles", "1 Cr": "1 Chronicles", "1Cr": "1 Chronicles",
+  "2 Crónicas": "2 Chronicles", "2 Cr": "2 Chronicles", "2Cr": "2 Chronicles",
+  "Esdras": "Ezra", "Esd": "Ezra",
+  "Nehemías": "Nehemiah", "Neh": "Nehemiah",
+  "Ester": "Esther", "Est": "Esther",
+  "Job": "Job",
+  "Salmos": "Psalms", "Salmo": "Psalms", "Sal": "Psalms",
+  "Proverbios": "Proverbs", "Pr": "Proverbs", "Prov": "Proverbs",
+  "Eclesiastés": "Ecclesiastes", "Ec": "Ecclesiastes", "Ecl": "Ecclesiastes",
+  "Cantares": "Song of Solomon", "Cantar de los Cantares": "Song of Solomon", "Cnt": "Song of Solomon", "Cant": "Song of Solomon",
+  "Isaías": "Isaiah", "Is": "Isaiah",
+  "Jeremías": "Jeremiah", "Jer": "Jeremiah",
+  "Lamentaciones": "Lamentations", "Lm": "Lamentations", "Lam": "Lamentations",
+  "Ezequiel": "Ezekiel", "Ez": "Ezekiel", "Eze": "Ezekiel",
+  "Daniel": "Daniel", "Dn": "Daniel",
+  "Oseas": "Hosea", "Os": "Hosea",
+  "Joel": "Joel", "Jl": "Joel",
+  "Amós": "Amos", "Am": "Amos",
+  "Abdías": "Obadiah", "Abd": "Obadiah",
+  "Jonás": "Jonah", "Jon": "Jonah",
+  "Miqueas": "Micah", "Mi": "Micah", "Miq": "Micah",
+  "Nahúm": "Nahum", "Nah": "Nahum",
+  "Habacuc": "Habakkuk", "Hab": "Habakkuk",
+  "Sofonías": "Zephaniah", "Sof": "Zephaniah",
+  "Hageo": "Haggai", "Hag": "Haggai",
+  "Zacarías": "Zechariah", "Zac": "Zechariah",
+  "Malaquías": "Malachi", "Mal": "Malachi",
+  "Mateo": "Matthew", "Mt": "Matthew",
+  "Marcos": "Mark", "Mr": "Mark", "Mc": "Mark",
+  "Lucas": "Luke", "Lc": "Luke",
+  "Juan": "John", "Jn": "John",
+  "Hechos": "Acts", "Hch": "Acts", "Hech": "Acts",
+  "Romanos": "Romans", "Ro": "Romans", "Rom": "Romans",
+  "1 Corintios": "1 Corinthians", "1 Co": "1 Corinthians", "1Co": "1 Corinthians", "1 Cor": "1 Corinthians",
+  "2 Corintios": "2 Corinthians", "2 Co": "2 Corinthians", "2Co": "2 Corinthians", "2 Cor": "2 Corinthians",
+  "Gálatas": "Galatians", "Gá": "Galatians", "Gal": "Galatians",
+  "Efesios": "Ephesians", "Ef": "Ephesians",
+  "Filipenses": "Philippians", "Fil": "Philippians", "Flp": "Philippians",
+  "Colosenses": "Colossians", "Col": "Colossians",
+  "1 Tesalonicenses": "1 Thessalonians", "1 Ts": "1 Thessalonians", "1Ts": "1 Thessalonians", "1 Tes": "1 Thessalonians",
+  "2 Tesalonicenses": "2 Thessalonians", "2 Ts": "2 Thessalonians", "2Ts": "2 Thessalonians", "2 Tes": "2 Thessalonians",
+  "1 Timoteo": "1 Timothy", "1 Ti": "1 Timothy", "1Ti": "1 Timothy", "1 Tim": "1 Timothy",
+  "2 Timoteo": "2 Timothy", "2 Ti": "2 Timothy", "2Ti": "2 Timothy", "2 Tim": "2 Timothy",
+  "Tito": "Titus", "Tit": "Titus",
+  "Filemón": "Philemon", "Flm": "Philemon", "Film": "Philemon",
+  "Hebreos": "Hebrews", "He": "Hebrews", "Heb": "Hebrews",
+  "Santiago": "James", "Stg": "James", "Sant": "James",
+  "1 Pedro": "1 Peter", "1 P": "1 Peter", "1P": "1 Peter", "1 Pe": "1 Peter",
+  "2 Pedro": "2 Peter", "2 P": "2 Peter", "2P": "2 Peter", "2 Pe": "2 Peter",
+  "1 Juan": "1 John", "1 Jn": "1 John", "1Jn": "1 John",
+  "2 Juan": "2 John", "2 Jn": "2 John", "2Jn": "2 John",
+  "3 Juan": "3 John", "3 Jn": "3 John", "3Jn": "3 John",
+  "Judas": "Jude", "Jud": "Jude",
+  "Apocalipsis": "Revelation", "Ap": "Revelation", "Apoc": "Revelation",
+};
+
+/** Lower-case, strip accents and trailing period, collapse spaces. */
+function normalizeName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.$/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 // Build a case-insensitive lookup combining all name forms -> canonical name
 const NAME_LOOKUP: Map<string, string> = new Map();
 
 // Add canonical full names
 for (const name of Object.keys(BOOK_TO_LOGOS)) {
-  NAME_LOOKUP.set(name.toLowerCase(), name);
+  NAME_LOOKUP.set(normalizeName(name), name);
 }
 
 // Add common aliases
 for (const [alias, canonical] of Object.entries(ALIAS_TO_BOOK)) {
-  NAME_LOOKUP.set(alias.toLowerCase(), canonical);
+  NAME_LOOKUP.set(normalizeName(alias), canonical);
+}
+
+// Add Spanish names and abbreviations (added after English aliases so a
+// genuine collision — none known — would favour the Spanish form only when
+// the English one is absent)
+for (const [alias, canonical] of Object.entries(SPANISH_TO_BOOK)) {
+  if (!NAME_LOOKUP.has(normalizeName(alias))) NAME_LOOKUP.set(normalizeName(alias), canonical);
 }
 
 // Add Logos abbreviations as aliases too
 for (const [abbr, canonical] of Object.entries(LOGOS_TO_BOOK)) {
-  NAME_LOOKUP.set(abbr.toLowerCase(), canonical);
+  if (!NAME_LOOKUP.has(normalizeName(abbr))) NAME_LOOKUP.set(normalizeName(abbr), canonical);
 }
 
 // Single-chapter books: when user writes "Jude 4", it means chapter 1 verse 4
@@ -168,7 +259,7 @@ const SINGLE_CHAPTER_BOOKS = new Set([
 export function resolveBookName(input: string): string | null {
   const trimmed = input.trim();
   // Try exact match first (case-insensitive)
-  const direct = NAME_LOOKUP.get(trimmed.toLowerCase());
+  const direct = NAME_LOOKUP.get(normalizeName(trimmed));
   if (direct) return direct;
   return null;
 }
@@ -182,12 +273,12 @@ export function parseReference(input: string): ParsedReference {
   // Book name: optional leading digit+space, then letters (and possibly spaces for multi-word books)
   // After book name: chapter, optional :verse, optional range
   const match = trimmed.match(
-    /^(\d?\s*[A-Za-z][A-Za-z\s]*?)\.?\s+(\d+)(?::(\d+))?(?:\s*[-–]\s*(\d+)(?::(\d+))?)?$/
+    /^(\d?\s*[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]*?)\.?\s+(\d+)(?::(\d+))?(?:\s*[-–]\s*(\d+)(?::(\d+))?)?$/
   );
 
   if (!match) {
     throw new Error(
-      `Cannot parse reference: "${input}". Expected formats like "John 3:16", "1 Cor 13:4-7", "Ps 23" (book name or common abbreviation, chapter[:verse[-endVerse]]).`
+      `Cannot parse reference: "${input}". Expected formats like "John 3:16", "1 Cor 13:4-7", "Ps 23", "Romanos 8:28", "1 Co 1:4" (book name or common abbreviation, chapter[:verse[-endVerse]]).`
     );
   }
 

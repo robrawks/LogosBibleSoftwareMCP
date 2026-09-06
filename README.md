@@ -4,7 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 ## What This Does
 
-- **24 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
+- **30 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
 - **A Socratic Bible Study agent** that guides you through Scripture using questions (not lectures), welcoming any denominational background, with four questioning layers: Observation, Interpretation, Correlation, and Application
 - **A QA Tool Tester agent** that systematically exercises all tools and produces a pass/fail/skip report
 
@@ -14,7 +14,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 |-------------|---------|
 | **macOS or Windows** | macOS uses the `open` command and AppleScript; Windows uses the registered `logos4:` protocol handler and `tasklist` |
 | **Logos Bible Software** | macOS: `/Applications/Logos.app` (tested with v48); Windows: standard install under `%LOCALAPPDATA%\Logos` |
-| **Node.js** | v18+ (v23+ recommended for native `fetch` support) |
+| **Node.js** | v20+ (better-sqlite3 12 no longer supports Node 18) |
 | **Claude Code** | Anthropic's CLI tool ([install guide](https://docs.anthropic.com/en/docs/claude-code)) |
 | **Biblia API Key** | Free key from [bibliaapi.com](https://bibliaapi.com/) |
 | **Xcode Command Line Tools** | `clang` is required to compile the window-capture helper used by `capture_panel_screenshot` (install: `xcode-select --install`) |
@@ -72,7 +72,7 @@ BIBLIA_API_KEY=your_api_key_here
 claude
 ```
 
-Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 24 tools.
+Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 30 tools.
 
 ## Using with Claude Desktop or Cowork
 
@@ -191,14 +191,14 @@ LogosBibleSoftwareMCP/
 ├── .claude/
 │   └── agents/
 │       ├── socratic-bible-study.md    # Socratic agent definition
-│       └── tool-tester.md            # QA agent for testing all 24 tools
+│       └── tool-tester.md            # QA agent for testing all 30 tools
 ├── .mcp.json                          # MCP server config (you create this)
 ├── .env                               # API key (you create this)
 ├── logos-mcp-server/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # MCP server entry point (24 tools)
+│   │   ├── index.ts                   # MCP server entry point (30 tools)
 │   │   ├── cli.ts                     # Diagnose CLI entry point
 │   │   ├── config.ts                  # Paths, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
@@ -228,6 +228,24 @@ The server auto-detects your Logos data by scanning for the per-install instance
 macOS:    ~/Library/Application Support/Logos4/Documents/<instance-id>/
 Windows:  %LOCALAPPDATA%\Logos\Documents\<instance-id>\
 ```
+
+### Reading resource text (macOS)
+
+Logos resource files are encrypted and the reader panel exposes no accessibility tree, so text is read through the app itself: `read_panel_text` drag-selects the visible panel, copies it and returns the text plus the citation Logos attaches; `pages` scrolls and reads several screens (overlaps removed). `read_resource_at` does the whole thing in one call: open a resource at a passage, wait, read. Every "opens the Logos UI" tool (navigate_passage, open_resource, open_guide, search_all, open_word_study, open_factbook) can be followed by `read_panel_text` to get what it opened as text. Requires Accessibility permission for the host app and an uncovered Logos window.
+
+**Calibration.** The text area is located by fixed offsets from the panel edges (defaults measured on Logos v48: 165 px from the top for tab bar + toolbar + locator bar, 20 left, 40 right for the scrollbar, 10 bottom). If reads come back empty or start with toolbar labels — a different Logos version, hidden locator bar, larger UI scale — set `LOGOS_PANEL_TEXT_OFFSETS="top,left,right,bottom"` in the server `env` (e.g. `"130,20,40,10"`). `LOGOS_SIDEBAR_WIDTH` (default 60) is the icon sidebar skipped when no panel window can be told apart from the main window. Run with `LOGOS_DEBUG=1` to see the drag rectangle actually used.
+
+### Your own Logos documents
+
+Four tools read the documents you create in Logos (read-only): `get_sermons` / `get_sermon` (Sermon Builder sermons, rendered as Markdown with headings, bullets, quoted passages and their references, plus series, preaching occasions and tags), `get_reading_plans` (plans with schedule and progress) and `get_passage_lists` (curated reference lists). They live in `Documents/<profile>/Documents/{Sermon,ReadingPlan,PassageList}/`.
+
+### Licensed vs. unlicensed resources
+
+The Logos catalog also lists titles that are only available for purchase or preview. `get_library_catalog` and `get_resource_types` return **licensed resources only** by default (catalog `Availability = 2`, which matches the resource files actually downloaded); pass `licensed_only: false` to include the rest, which are flagged *sin licencia*. Both tools also accept `language` (ISO code such as `es`, `en`, `grc`, `he`).
+
+### Default Bible and Spanish references
+
+Bible-text tools default to the Lexham English Bible (LEB). Set `LOGOS_DEFAULT_BIBLE` in the `env` block to change it (e.g. `"LOGOS_DEFAULT_BIBLE": "RVR60"` for Reina-Valera 1960; run `get_available_bibles` for the codes). References are accepted with English or Spanish book names and common abbreviations (`Romans 8:28`, `Romanos 8:28`, `Ro 8:28`, `1 Co 1:4-9`, `Sal 23`), accents optional.
 
 Each Logos install uses a randomly named instance directory (e.g. `a3wo155q.w14`); detection prefers the directory containing `LibraryCatalog/catalog.db`, so there is no fixed path to configure. If your Logos data lives at a non-standard path, the `LOGOS_DATA_DIR` and `LOGOS_CATALOG_DIR` environment variables remain available as manual overrides (set them in `.mcp.json`). The library catalog lives under `Data/` (not `Documents/`) — set `LOGOS_CATALOG_DIR` if your catalog path differs:
 

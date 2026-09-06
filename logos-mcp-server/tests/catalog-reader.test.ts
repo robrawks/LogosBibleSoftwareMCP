@@ -55,3 +55,18 @@ describe("resolveTypeFilter", () => {
     expect(resolveTypeFilter("")).toEqual([""]);
   });
 });
+
+describe("licensing and language filters", () => {
+  it("treats Availability 2 as licensed and anything else as not", async () => {
+    const { isLicensed } = await import("../src/services/catalog-reader.js");
+    expect(isLicensed(2)).toBe(true);
+    expect(isLicensed(3)).toBe(false);
+    expect(isLicensed(null)).toBe(false);
+  });
+  it("builds a whole-token language clause", async () => {
+    const { languageClause } = await import("../src/services/catalog-reader.js");
+    const c = languageClause(" ES ");
+    expect(c.params).toEqual(["es", "es %", "% es", "% es %"]);
+    expect(c.sql).toContain("LOWER(Languages)");
+  });
+});

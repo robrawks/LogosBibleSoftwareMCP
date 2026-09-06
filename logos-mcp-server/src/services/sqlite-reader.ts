@@ -529,13 +529,20 @@ const BOOKS_BY_NUMBER: Record<number, string> = {
   24: "Jeremiah", 25: "Lamentations", 26: "Ezekiel", 27: "Daniel",
   28: "Hosea", 29: "Joel", 30: "Amos", 31: "Obadiah", 32: "Jonah",
   33: "Micah", 34: "Nahum", 35: "Habakkuk", 36: "Zephaniah", 37: "Haggai",
-  38: "Zechariah", 39: "Malachi", 40: "Matthew", 41: "Mark", 42: "Luke",
-  43: "John", 44: "Acts", 45: "Romans", 46: "1 Corinthians",
-  47: "2 Corinthians", 48: "Galatians", 49: "Ephesians", 50: "Philippians",
-  51: "Colossians", 52: "1 Thessalonians", 53: "2 Thessalonians",
-  54: "1 Timothy", 55: "2 Timothy", 56: "Titus", 57: "Philemon",
-  58: "Hebrews", 59: "James", 60: "1 Peter", 61: "2 Peter", 62: "1 John",
-  63: "2 John", 64: "3 John", 65: "Jude", 66: "Revelation",
+  38: "Zechariah", 39: "Malachi",
+  // Logos reserves 40–60 for the deuterocanon; the New Testament starts at 61
+  // (verified against Sermon passage blocks: bible.61.7.16 = Matthew 7:16).
+  40: "Tobit", 41: "Judith", 42: "Additions to Esther", 43: "Wisdom of Solomon",
+  44: "Sirach", 45: "Baruch", 46: "Letter of Jeremiah", 47: "Prayer of Azariah",
+  48: "Susanna", 49: "Bel and the Dragon", 50: "1 Maccabees", 51: "2 Maccabees",
+  52: "1 Esdras", 53: "Prayer of Manasseh", 54: "Psalm 151", 55: "3 Maccabees",
+  56: "2 Esdras", 57: "4 Maccabees", 58: "Odes", 59: "Psalms of Solomon", 60: "Laodiceans",
+  61: "Matthew", 62: "Mark", 63: "Luke", 64: "John", 65: "Acts", 66: "Romans",
+  67: "1 Corinthians", 68: "2 Corinthians", 69: "Galatians", 70: "Ephesians",
+  71: "Philippians", 72: "Colossians", 73: "1 Thessalonians", 74: "2 Thessalonians",
+  75: "1 Timothy", 76: "2 Timothy", 77: "Titus", 78: "Philemon", 79: "Hebrews",
+  80: "James", 81: "1 Peter", 82: "2 Peter", 83: "1 John", 84: "2 John", 85: "3 John",
+  86: "Jude", 87: "Revelation",
 };
 
 // Matches raw Logos reference strings found in AnchorsJson, e.g.:
@@ -570,7 +577,7 @@ export function parseAnchorReference(anchorsJson: string | null): string | null 
   return null;
 }
 
-function bibleRawToHuman(raw: string): string | null {
+export function bibleRawToHuman(raw: string): string | null {
   const m = raw.match(BIBLE_RAW_RE);
   if (!m) return null;
   const book = BOOKS_BY_NUMBER[parseInt(m[1], 10)];

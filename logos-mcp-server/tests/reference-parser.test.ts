@@ -321,3 +321,31 @@ describe("parseReference error messages", () => {
     );
   });
 });
+
+describe("Spanish book names", () => {
+  it("resolves full Spanish names with and without accents", () => {
+    expect(toLogosUrlRef("Génesis 1:1")).toBe("Ge1.1");
+    expect(toLogosUrlRef("Genesis 1:1")).toBe("Ge1.1");
+    expect(toLogosUrlRef("Romanos 8:28")).toBe("Ro8.28");
+    expect(toLogosUrlRef("1 Corintios 1:4-9")).toBe("1Co1.4-1.9");
+    expect(toLogosUrlRef("Apocalipsis 21:1-4")).toBe("Re21.1-21.4");
+    expect(toLogosUrlRef("Éxodo 20:1-17")).toBe("Ex20.1-20.17");
+  });
+  it("resolves Reina-Valera abbreviations", () => {
+    expect(toLogosUrlRef("Sal 23")).toBe("Ps23");
+    expect(toLogosUrlRef("Hch 2:21")).toBe("Ac2.21");
+    expect(toLogosUrlRef("1 Co 13:4-7")).toBe("1Co13.4-13.7");
+    expect(toLogosUrlRef("Stg 1:2")).toBe("Jas1.2");
+    expect(toLogosUrlRef("Ef 2:8")).toBe("Eph2.8");
+    expect(toLogosUrlRef("Mr 1:1")).toBe("Mk1.1");
+  });
+  it("keeps English aliases intact where a Spanish form could collide", () => {
+    expect(toLogosUrlRef("Judg 4")).toBe("Jdg4");
+    expect(toLogosUrlRef("Jud 4")).toBe("Jud1.4");
+    expect(toLogosUrlRef("Is 53:5")).toBe("Is53.5");
+  });
+  it("handles single-chapter books in Spanish", () => {
+    expect(toLogosUrlRef("Filemón 4")).toBe("Phm1.4");
+    expect(toLogosUrlRef("Judas 4")).toBe("Jud1.4");
+  });
+});

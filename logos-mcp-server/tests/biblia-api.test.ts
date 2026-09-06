@@ -16,3 +16,15 @@ describe("normalizeResultCount", () => {
     expect(normalizeResultCount(undefined, 3)).toBe(3);
   });
 });
+
+describe("normalizeForBiblia", () => {
+  it("translates Spanish references to English for the API", async () => {
+    const { normalizeForBiblia } = await import("../src/services/biblia-api.js");
+    expect(normalizeForBiblia("Romanos 8:28")).toBe("Romans 8:28");
+    expect(normalizeForBiblia("1 Co 1:4-9")).toBe("1 Corinthians 1:4-9");
+  });
+  it("passes through what the parser cannot handle", async () => {
+    const { normalizeForBiblia } = await import("../src/services/biblia-api.js");
+    expect(normalizeForBiblia("Gen 1:1; Exod 2:1")).toBe("Gen 1:1; Exod 2:1");
+  });
+});

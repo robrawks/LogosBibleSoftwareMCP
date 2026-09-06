@@ -128,6 +128,8 @@ export const DB_PATHS = {
   notes: join(LOGOS_DATA_DIR, "NotesToolManager", "notestool.db"),
   clippings: join(LOGOS_DATA_DIR, "Documents", "Clippings", "Clippings.db"),
   passageLists: join(LOGOS_DATA_DIR, "Documents", "PassageList", "PassageList.db"),
+  sermons: join(LOGOS_DATA_DIR, "Documents", "Sermon", "Sermon.db"),
+  readingPlans: join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db"),
   catalog: join(LOGOS_CATALOG_DIR, "LibraryCatalog", "catalog.db"),
 } as const;
 
@@ -135,7 +137,9 @@ export const DB_PATHS = {
 
 export const BIBLIA_API_KEY = process.env.BIBLIA_API_KEY ?? "";
 export const BIBLIA_API_BASE = "https://api.biblia.com/v1/bible";
-export const DEFAULT_BIBLE = "LEB";
+// Default Bible for the Biblia-backed text tools. Override with
+// LOGOS_DEFAULT_BIBLE (e.g. RVR60, KJV); see get_available_bibles.
+export const DEFAULT_BIBLE = (process.env.LOGOS_DEFAULT_BIBLE ?? "LEB").toUpperCase();
 
 // ─── Logos URL Schemes ───────────────────────────────────────────────────────
 
@@ -155,4 +159,4 @@ export const MAX_CAPTURE_WAIT_MS = 15000;
 // ─── Server Info ─────────────────────────────────────────────────────────────
 
 export const SERVER_NAME = "logos-bible";
-export const SERVER_VERSION = "1.0.0";
+export const SERVER_VERSION = "1.1.0";

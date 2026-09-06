@@ -133,23 +133,57 @@ export function resolveTypeFilter(input: string): string[] {
   return [input];
 }
 
+// ─── Licensing ──────────────────────────────────────────────────────────────
+// The Logos catalog mixes owned resources with ones merely visible for
+// purchase/preview. Empirically (Logos v48 macOS, verified against titles the
+// user confirmed not owning): Availability = 2 → licensed and downloaded,
+// Availability = 3 → in catalog but not licensed (none of those have a
+// resource file on disk). Treat 2 as licensed; anything else as not.
+export const LICENSED_AVAILABILITY = 2;
+
+export function isLicensed(availability: number | null | undefined): boolean {
+  return availability === LICENSED_AVAILABILITY;
+}
+
+// Records.Languages is a space/comma separated list of ISO codes ("es", "en grc").
+export function languageClause(language: string): { sql: string; params: string[] } {
+  const code = language.trim().toLowerCase();
+  // Match the code as a whole token: exact, leading, trailing, or in the middle.
+  return {
+    sql: "(LOWER(Languages) = ? OR LOWER(Languages) LIKE ? ESCAPE '\\' OR LOWER(Languages) LIKE ? ESCAPE '\\' OR LOWER(Languages) LIKE ? ESCAPE '\\')",
+    params: [code, `${escapeLike(code)} %`, `% ${escapeLike(code)}`, `% ${escapeLike(code)} %`],
+  };
+}
+
 // ─── Search Catalog ─────────────────────────────────────────────────────────
 
 export function searchCatalog(options: {
   type?: string;
   query?: string;
   author?: string;
+  language?: string;
+  licensedOnly?: boolean;
   limit?: number;
 } = {}): CatalogResource[] {
   const db = openDb(DB_PATHS.catalog);
   try {
     let sql = `
       SELECT ResourceId, Title, AbbreviatedTitle, Type, Authors,
-             Subjects, Description, PublicationDate
+             Subjects, Description, PublicationDate, Languages, Availability, Publishers
       FROM Records
       WHERE Availability >= 1 AND IsDataset = 0
     `;
     const params: unknown[] = [];
+
+    if (options.licensedOnly !== false) {
+      sql += " AND Availability = ?";
+      params.push(LICENSED_AVAILABILITY);
+    }
+    if (options.language) {
+      const clause = languageClause(options.language);
+      sql += ` AND ${clause.sql}`;
+      params.push(...clause.params);
+    }
 
     if (options.type) {
       const patterns = resolveTypeFilter(options.type);
@@ -181,6 +215,9 @@ export function searchCatalog(options: {
       Subjects: string | null;
       Description: string | null;
       PublicationDate: string | null;
+      Languages: string | null;
+      Availability: number | null;
+      Publishers: string | null;
     }>;
 
     return rows.map((r) => ({
@@ -192,6 +229,9 @@ export function searchCatalog(options: {
       subjects: r.Subjects,
       description: stripXml(r.Description),
       publicationDate: r.PublicationDate,
+      languages: r.Languages,
+      licensed: isLicensed(r.Availability),
+      publishers: r.Publishers,
     }));
   } finally {
     db.close();
@@ -200,16 +240,27 @@ export function searchCatalog(options: {
 
 // ─── Resource Type Summary ──────────────────────────────────────────────────
 
-export function getResourceTypeSummary(): ResourceTypeSummary[] {
+export function getResourceTypeSummary(options: { licensedOnly?: boolean; language?: string } = {}): ResourceTypeSummary[] {
   const db = openDb(DB_PATHS.catalog);
   try {
+    let where = "Availability >= 1 AND IsDataset = 0";
+    const params: unknown[] = [];
+    if (options.licensedOnly !== false) {
+      where += " AND Availability = ?";
+      params.push(LICENSED_AVAILABILITY);
+    }
+    if (options.language) {
+      const clause = languageClause(options.language);
+      where += ` AND ${clause.sql}`;
+      params.push(...clause.params);
+    }
     const rows = db.prepare(`
       SELECT Type, COUNT(*) as Count
       FROM Records
-      WHERE Availability >= 1 AND IsDataset = 0
+      WHERE ${where}
       GROUP BY Type
       ORDER BY Count DESC
-    `).all() as Array<{
+    `).all(...params) as Array<{
       Type: string;
       Count: number;
     }>;
