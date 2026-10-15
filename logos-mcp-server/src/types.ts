@@ -158,6 +158,28 @@ export interface ResourceTypeSummary {
   count: number;
 }
 
+// ─── Knowledge Base Types ────────────────────────────────────────────────────
+
+export interface KnowledgeEntry {
+  /** Knowledge-base ID, e.g. "bk.#Moses", "bk.%Sabbath", "bk.to:DBT-5333". */
+  id: string;
+  label: string;
+  /** Logos entry kind (IconKinds.IconKind), e.g. "Man", "Topic", "PreachingTheme". */
+  kind: string | null;
+  description: string | null;
+}
+
+export type KnowledgeResolution =
+  | { status: "resolved"; entry: KnowledgeEntry }
+  | { status: "ambiguous"; matches: KnowledgeEntry[] }
+  | { status: "not_found" }
+  | { status: "unavailable"; message: string };
+
+export type GuideTargetResolution =
+  | KnowledgeResolution
+  | { status: "bible"; reference: string }
+  | { status: "invalid"; message: string };
+
 // ─── Biblia Scan / Compare / Find Types ─────────────────────────────────────
 
 export interface ScanResult {
