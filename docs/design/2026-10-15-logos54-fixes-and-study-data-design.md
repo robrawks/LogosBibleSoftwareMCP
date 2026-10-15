@@ -47,6 +47,11 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 | F13 | Reads are safe while Logos runs. | Three rounds of every read tool against the live files with Logos open: no lock errors. The diagnose run did not touch live `-shm`/`-wal` files. |
 | F14 | Profile auto-detection works for non-`.w14` names. | `xmt0sr2y.xit` was found by the relaxed fallback in `config.ts`. |
 | F15 | On Windows, `get_logos_state` can report only running/not running; `capture_panel_screenshot` cannot work. | The window helper is compiled Objective-C (`clang`); `ensureHelper()` fails and is swallowed. |
+| F16 | `ReadingPlanStatus.ReadSessions` is the index of the last completed session (inclusive), not a count. | CSB plan: `259` of 261 sessions (index 259 has no readings); Logos's Today page shows its next reading as Rev 22 = session 260. 40 Questions plan: `0`; Today page shows pp 9–13 = session 1. A count would predict session 0 (pp 3–8) for the second plan. `ReadSessionsMetadata` was `{"259":{"completedDate":…}}` in one read and `null` in a later one, so it is not reliable. |
+| F17 | Logos `0x02` blobs have a 5-byte header: `0x02` + little-endian uint32 length + payload. | `PassageLists.CompressedItems`: `02 53 00 00 00` then 83 bytes of JSON; parsing from offset 4 fails. `decodeClippingBlob()` skips only 4 bytes for `0x02` (its test fixture is a hand-built 4-byte header); its `0x01` gzip branch already skips 5. No clipping rows exist on the test install to confirm the clipping side. |
+| F18 | The Passage Guide's resource prioritization is not stored in any local SQLite database. | Searched every profile database for "priorit": only a sync marker (`UserEventManager.Events` row `ResourcePriorities` with a revision blob) and unrelated `Priority` columns. Logos's code references `ResourcePrioritiesSyncBaseUri`, so the list is likely fetched from Faithlife's servers. |
+| F19 | Saved Search panels store `SearchKindName` (`AllSearch`, `BooksSearch`), `QueryText` and `SyntaxVersion=V2`. | `layouts.db` panel settings. A working `search_all` link was not found (see Open Questions). |
+| F20 | When Logos is busy, a link can leave a second `Logos.exe` running and nothing opens. | After Logos recovered from a hang, `logosres:LLS:LEB;ref=bible.64.5.1` started a second `Logos.exe` that stayed running; no history row appeared, and known-good guide links also did nothing. |
 
 ## Goals
 
@@ -66,7 +71,7 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 
 | PR | Branch | Contents | Depends on |
 |---|---|---|---|
-| 1 | `fix/logos54-compat` | Book numbers, facet-table verses, link formats, knowledge-base lookup, honest word study/search, Windows status honesty, compatibility switch, docs | — |
+| 1 | `fix/logos54-compat` | Book numbers, facet-table verses, link formats, knowledge-base lookup, honest word study/search, Windows status honesty, blob decoder fix, compatibility switch, docs | — |
 | 2 | `feature/study-data` | Reading plans (fixing `get_reading_progress`), `get_resource_reading_progress`, `get_reading_history`, `get_passage_lists`, `format: "json"` | PR 1 |
 | 3 | `feature/passage-resources` | `find_passage_resources`, history confirmation in `open_resource` | PR 1 |
 
@@ -149,7 +154,17 @@ All Logos URL construction moves here; `logos-app.ts` keeps only the launching (
 - UI-tool success messages stop suggesting `capture_panel_screenshot` when not on macOS.
 - README Prerequisites/Available Tools mark `capture_panel_screenshot` and window titles as macOS-only.
 
-### 1.7 Docs
+### 1.7 Blob decoder
+
+`decodeClippingBlob()` in `src/utils/clippings.ts` becomes a general `decodeLogosBlob()` (the old name kept as an alias for existing callers):
+
+- `0x01`: gzip payload after the 5-byte header (unchanged).
+- `0x02`: raw UTF-8 payload after the 5-byte header (was 4; F17). When the declared length matches the remaining bytes, use exactly that many; otherwise fall back to everything after byte 5.
+- Anything else: unchanged best-effort UTF-8 decode.
+
+`tests/clippings-utils.test.ts` fixtures change to the real header shape (`02` + uint32 LE length), plus a fixture copied from the observed passage-list blob. The PR notes that the clipping side is unconfirmed on a real install because the test install has no clippings.
+
+### 1.8 Docs
 
 README: link-style switch, Logos book-number note, limitations (word study, sermon starter, search), updated troubleshooting. `.claude/agents/tool-tester.md`: test prompts for Factbook disambiguation and guide titles.
 
@@ -161,8 +176,8 @@ New `DB_PATHS` entries: `readingPlans` = `join(LOGOS_DATA_DIR, "Documents", "Rea
 
 - Reads `ReadingPlanDocuments` (non-deleted): `Title`, `Settings` JSON (`resourceId`, range, frequency, start date), `Sessions` JSON (`[{date, readings:[[{resourceId, reference}]]}]`).
 - Joins to `ReadingPlanStatus` by matching the document's `ScheduleId` blob (a .NET GUID in little-endian field order) to the status row's `SyncId` hex string. Verified on the test install: status `d80ae946…602d` ↔ ScheduleId bytes `46 e9 0a d8 71 73 ee 41 94 38 a1 39 9d 19 60 2d`. Helper `dotnetGuidBytesToHex()` with a unit test.
-- Reports per plan: title, resource title, total sessions, sessions read, next reading (date + readable passage via 1.1, or page range for non-Bible plans such as `page.3-8`), and days behind today's date.
-- `ReadSessions` / `ReadSessionsMetadata` semantics are confirmed against the Reading Plan panel during implementation (see Open Questions); the tool reports only fields whose meaning was confirmed.
+- `ReadSessions` (F16) is parsed as the index of the last completed session. Sessions `0…ReadSessions` count as read; the next reading is the first later session whose `readings` list is non-empty (empty sessions are skipped). A plan with no status row has read nothing. A value that isn't a plain non-negative integer is reported raw and the plan's progress is shown as unknown, never guessed. `ReadSessionsMetadata` is ignored (F16).
+- Reports per plan: title, resource title, sessions with readings, sessions read, next reading (date + readable passage via 1.1, or page range for non-Bible plans such as `page.9-13`), and days behind (today minus the next reading's scheduled date, when positive). Verified expectations for the test install: CSB plan → next Rev 22 (2025-12-31); 40 Questions plan → next pp 9–13 (2025-01-02).
 - Falls back to the existing `ReadingLists.db` output when no plan store exists; when both exist, shows both sections.
 
 ### 2.2 `get_resource_reading_progress` (new)
@@ -175,7 +190,7 @@ Reads `History` (non-deleted): `Title`, `Subtitle` (the location, e.g. "John 5:1
 
 ### 2.4 `get_passage_lists` (new)
 
-Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. The blob observed starts `0x02` followed by a 4-byte length then JSON (`[{"ref":"bible.18.10.21-18.10.22"},…]`), i.e. a 5-byte header, while `decodeClippingBlob()` skips 4 bytes for prefix `0x02`. Implementation verifies against real blobs from both stores before sharing a decoder; references are converted via 1.1.
+Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. The blob is decoded with the shared decoder from 1.7 (F17) and parsed as JSON (`[{"ref":"bible.18.10.21-18.10.22"},…]`); references are converted via 1.1 (the test list decodes to Job 10:21–22, Ecclesiastes 9:10, Isaiah 5:14).
 
 ### 2.5 `format: "json"`
 
@@ -191,11 +206,11 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 - Parses `ReferenceSupersets` (space-separated). Uses only `bible` / `bible+edition` entries: `bible.B.C.V-B.C.V`, `bible.B.C-B.C`, `bible.B-B`; missing end parts are treated as open ("to the end of the chapter/book"). Ignores other range types (`af.`, `augustine.`, …). The passage's start must fall inside a range (Logos book numbers via 1.1).
 - Output per resource: title, abbreviation, authors, series, kind, purpose, era, community rating, resource ID. Sort: commentaries first, then `UseCount` desc, then `CommunityRating` desc. `UseCount` is used for sorting only and appears in JSON, not text (matching the response-cleanup design that removed it from catalog text).
 - Parsed ranges are cached per process, keyed by the catalog file's mtime.
-- README notes that the order differs from the user's Passage Guide prioritization list (its storage location is unknown; see Open Questions).
+- README notes that the order differs from the user's Passage Guide prioritization list, which is not stored locally (F18).
 
 ### 3.2 `open_resource` confirms
 
-After launching, poll `history.db` (read-only) for up to 8 s for a row newer than the launch time whose bookmark contains the resource ID. Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it." When the history store is absent, keep today's message. Guides and Factbook state that they cannot be confirmed.
+After launching, poll `history.db` (read-only) for up to 8 s for a row newer than the launch time whose bookmark contains the resource ID. Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guides and Factbook state that they cannot be confirmed.
 
 ### 3.3 No batch tool
 
@@ -239,12 +254,12 @@ Derived from the code at `6d4a414`, its tests, `docs/design/`, and commit histor
 ## Testing and Verification
 
 **Unit (all PRs, `npm test`)**
-- Book-number conversion including unmapped 40–60; facet-table joins; every URL builder in both link styles; knowledge-base lookup (single, multiple, none); GUID byte-order helper; passage-list blob decoding; `ReferenceSupersets` range parsing and containment (verse, chapter-only, book-only, edition-prefixed, non-Bible entries ignored); JSON helper and limit capping.
+- Book-number conversion including unmapped 40–60; facet-table joins; every URL builder in both link styles; knowledge-base lookup (single, multiple, none); GUID byte-order helper; `ReadSessions` handling (inclusive index, empty-session skip, missing status row, non-integer value); `0x01`/`0x02` blob decoding with the 5-byte header, including a length mismatch; `ReferenceSupersets` range parsing and containment (verse, chapter-only, book-only, edition-prefixed, non-Bible entries ignored); JSON helper and limit capping.
 - Two-schema fixtures (legacy and Logos 54 shapes) for every reader.
 
 **Manual verification on Windows Logos 54 (recorded in each PR description)**
 - PR 1: a Romans note/highlight labeled Romans; `get_user_notes passage="Acts 9"` returns the Acts 9:35 note; `navigate_passage "John 5:1"` adds a history row; Passage/Exegetical/Topic guides open (tab titles); `open_factbook "Moses"` disambiguates, `kb_id="bk.#Moses"` opens; word study message is honest.
-- PR 2: reading plan figures match the Reading Plan panel; per-book progress matches the resource's progress indicator; history matches the History panel.
+- PR 2: reading plans' next readings match Logos's Today page (CSB → Rev 22, 40 Questions → pp 9–13 on the test install); per-book progress matches the resource's progress indicator; history matches the History panel.
 - PR 3: `find_passage_resources "John 5:1" kind=commentary` lists Carson (PNTC Jn) and Phillips (REC Jn); `open_resource` confirms via history.
 
 **Requested of the maintainer on macOS**
@@ -252,8 +267,11 @@ Derived from the code at `6d4a414`, its tests, `docs/design/`, and commit histor
 
 ## Open Questions (resolved during implementation, not blocking the design)
 
-1. `search_all`: find a working link form (try `logos4:Search;kind=AllSearch;q=…` and similar), else honest message.
-2. `ReadSessions` / `ReadSessionsMetadata` meaning in `ReadingPlanStatus` (observed `0`/null and `259` with `{"259":{"completedDate":…}}`) — compare with the Reading Plan panel.
-3. Passage-list blob header length (5 vs 4 bytes after `0x02`) and whether `decodeClippingBlob()` has the same issue for clippings.
-4. Where Logos stores the Passage Guide's commentary prioritization (candidate: `UserPreferences2/PreferencesManager.db`); if found cheaply, use it for sorting in 3.1.
-5. Whether the Sermon Starter Guide loads its theme from `ref=bk.to:…` (F8).
+1. **`search_all` link.** Saved panels use `SearchKindName`, `QueryText` and `SyntaxVersion` (F19). Try, with Logos idle and the workspace (not the Today page) showing: `logos4:Search;kind=AllSearch;q=…;syntax=v2`, `logos4:Search;kind=BooksSearch;q=…`, and `logos4:Search;SearchKindName=AllSearch;QueryText=…`. These three were tried once while Logos was not processing any links (F20), so that run proves nothing. If none works, give `search_all` the honest treatment from 1.5.
+2. **Sermon Starter theme.** Confirm whether `logos4:Guide;t=Sermon%20Starter%20Guide;ref=bk.to%3ADBT-5333` loads "Healing" (F8), under the same idle conditions. If not, describe the guide as opening without a theme.
+
+### Resolved
+
+- `ReadSessions` meaning → F16, applied in 2.1.
+- `0x02` blob header length → F17, applied in 1.7 and 2.4.
+- Passage Guide prioritization storage → F18, applied in 3.1 (not used).
