@@ -46,7 +46,7 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 3. **A chapter-only passage starts at verse 1** for containment (`John 5` ≡ John 5:1), so a commentary whose range begins at 5:1 matches. (Task 1)
 4. **`navigate_passage` also confirms via history** in the `current` link style: it now sends a resource link (PR 1), so the same check applies. (Task 3)
 5. **Multiple authors** (tab-separated in `Records.Authors`) are shown joined with "; ". (Task 2)
-6. **How guide, Factbook and search targets match** (clarifies 3.2, which since 2026-10-15 confirms `open_guide`, `open_factbook` and `search_all` as well as resources). Logos 54 adds a history row for each (F12: `Guides|Key=BibleReference%7cref%3dbible.64.5.14|TemplateName=ExegeticalGuide`, `Factbook|ReportId=ref:bk.#Moses`, `Search|…|QueryText=baptism|SearchKindName=AllSearch`), so the same snapshot-and-new-row check applies, generalized from a resource ID to a target. A new row confirms when it is the same kind of thing (resource ID, guide template, any Factbook entry, search kind); "already showing" also needs the location (passage, guide subject, knowledge-base ID, query). Keeping the location out of confirmation means a field Logos stores differently only costs the "already showing" reply, never a real confirmation. Unverified, and checked in Task 4 Step 5: Passage Guide's `TemplateName` (assumed `PassageGuide`), how a Factbook `ReportId` stores `%`, how `QueryText` stores spaces. Legacy-style links are not confirmed: they were not probed, so they keep today's replies. (Task 3)
+6. **How guide, Factbook and search targets match** (clarifies 3.2, which since 2026-10-15 confirms `open_guide`, `open_factbook` and `search_all` as well as resources). Logos 54 adds a history row for each (F12: `Guides|Key=BibleReference%7cref%3dbible.64.5.14|TemplateName=ExegeticalGuide`, `Factbook|ReportId=ref:bk.#Moses`, `Search|…|QueryText=baptism|SearchKindName=AllSearch`), so the same snapshot-and-new-row check applies, generalized from a resource ID to a target. A new row confirms when it is the same kind of thing (resource ID, guide template, any Factbook entry, search kind); "already showing" also needs the location (passage, guide subject, knowledge-base ID, query). Keeping the location out of confirmation means a field Logos stores differently only costs the "already showing" reply, never a real confirmation. Probed on Logos 54 (2026-10-15, F12): Passage Guide's `TemplateName` is `PassageGuide`; a Factbook `ReportId` stores `%` encoded (`ref:bk.%25Sabbath`); `QueryText` stores spaces as `%20`; re-sending the guide, Factbook entry or search Logos is showing adds no row. Legacy-style links are not confirmed: they were not probed, so they keep today's replies. (Task 3)
 7. **Confirmation waits for a new row, not a newer timestamp.** The spec said "a row newer than the launch time". `LastVisited` has whole-second resolution, so an earlier visit in the same second would count (adversarial review). Logos also bumps `LastVisited` on the row the user *leaves*, so a changed timestamp means leaving, not opening (observed on Logos 54, 2026-10-15). The handler snapshots the target's row `Id`s before launching and waits for an `Id` not in the snapshot. Sending the location Logos is already showing adds no row at all (also observed). So the snapshot also records whether the most recently inserted row is the requested target and location. That case waits only 2 s and reports "already showing" instead of "did not confirm". (Task 3)
 8. **The coverage cache also watches `catalog.db-wal`.** Logos keeps the catalog in WAL mode, so a committed change can sit in the `-wal` file without changing the main file's modification time. The cache key is the modification time and size of both files. `PRAGMA data_version` was considered and rejected: it is only comparable within one connection, and the server opens a new connection per call. (Task 2)
 9. **A failed read while polling counts as "not yet".** A transient lock or open failure while Logos writes `history.db` retries at the next interval rather than ending the poll or throwing out of the handler. (Task 3)
@@ -765,7 +765,7 @@ git commit -m "feat: add find_passage_resources — owned books covering a passa
 | factbook | any `Factbook` row | `ReportId` is `ref:` plus the knowledge-base ID |
 | search | `Search` row whose `SearchKindName` equals the kind (`AllSearch`) | `QueryText` equals the query, ignoring case and surrounding spaces |
 
-A location field that fails to match only loses the "already showing" reply; it never turns a real open into "did not confirm". So stored values are compared both as stored and URL-decoded: the `Key` is percent-encoded (`%7c` = `|`, `%3d` = `=`) and its `ref` encoded again, while the observed `ReportId=ref:bk.#Moses` and `QueryText=baptism` were not. How Logos encodes `%` in a Factbook `ReportId` and spaces in `QueryText` is unverified; Task 4 Step 5 checks both.
+A location field that fails to match only loses the "already showing" reply; it never turns a real open into "did not confirm". So stored values are compared both as stored and URL-decoded: the `Key` is percent-encoded (`%7c` = `|`, `%3d` = `=`) and its `ref` encoded again, while a Factbook `ReportId` encodes `%` but not `#` (`ref:bk.%25Sabbath`, `ref:bk.#Moses`) and `QueryText` encodes spaces (`justification%20by%20faith`), all probed on Logos 54 on 2026-10-15 (F12).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -798,8 +798,8 @@ const kbGuide = (guideTitle: string, id: string): HistoryTarget => ({ kind: "gui
 const factbook = (kbId: string): HistoryTarget => ({ kind: "factbook", kbId });
 const search = (query: string, searchKind = "AllSearch"): HistoryTarget => ({ kind: "search", query, searchKind });
 
-// Bookmark shapes from the Logos 54 test install (design doc F12); titles and
-// subtitles of the non-resource rows are synthetic.
+// Bookmark, title and subtitle shapes from the Logos 54 test install (design
+// doc F12); search bookmarks are trimmed to the fields that matter.
 function addRow(path: string, id: string, title: string, subtitle: string, bookmark: string): void {
   createDb(
     path,
@@ -897,8 +897,8 @@ describe("history confirmation for guides, Factbook entries and searches", () =>
       `INSERT INTO History (Id, Title, Subtitle, LastVisited, Bookmark) VALUES
          ('g1', 'Exegetical Guide', 'John 5:14', '2026-10-15T06:50:00Z', '${EXEGETICAL_JN_5_14}'),
          ('t1', 'Topic Guide', 'Sabbath', '2026-10-15T06:51:00Z', '${TOPIC_SABBATH}'),
-         ('f1', 'Factbook', 'Moses', '2026-10-15T06:52:00Z', '${FACTBOOK_MOSES}'),
-         ('s1', 'Search', 'baptism', '2026-10-15T06:53:00Z', '${SEARCH_BAPTISM}');`
+         ('f1', 'Factbook | Moses', '', '2026-10-15T06:52:00Z', '${FACTBOOK_MOSES}'),
+         ('s1', 'Search', 'baptism | All', '2026-10-15T06:53:00Z', '${SEARCH_BAPTISM}');`
     ));
     useFixtureDirs(dirs);
     studyData = await import("../src/services/study-data.js");
@@ -921,7 +921,7 @@ describe("history confirmation for guides, Factbook entries and searches", () =>
   });
 
   it("compares an encoded search query", () => {
-    addRow(historyPath, "s2", "Search", "justification by faith", "Search|QueryText=justification%20by%20faith|SearchKindName=AllSearch");
+    addRow(historyPath, "s2", "Search", "justification by faith | All", "Search|QueryText=justification%20by%20faith|SearchKindName=AllSearch");
     expect(studyData.snapshotHistory(search("justification by faith"))?.alreadyShowing?.id).toBe("s2");
   });
 
@@ -944,9 +944,14 @@ describe("history confirmation for guides, Factbook entries and searches", () =>
   });
 
   it("compares a Factbook entry's knowledge-base ID", () => {
-    addRow(historyPath, "f2", "Factbook", "Moses", FACTBOOK_MOSES);
+    addRow(historyPath, "f2", "Factbook | Moses", "", FACTBOOK_MOSES);
     expect(studyData.snapshotHistory(factbook("bk.#Moses"))?.alreadyShowing?.id).toBe("f2");
     expect(studyData.snapshotHistory(factbook("bk.%Moses_Person"))?.alreadyShowing).toBeNull();
+  });
+
+  it("compares a Factbook ID whose % Logos stored encoded", () => {
+    addRow(historyPath, "f2s", "Factbook | Sabbath", "", "Factbook|ReportId=ref:bk.%25Sabbath");
+    expect(studyData.snapshotHistory(factbook("bk.%Sabbath"))?.alreadyShowing?.id).toBe("f2s");
   });
 
   it("reports an already-showing guide when no row is added", async () => {
@@ -977,7 +982,7 @@ describe("history confirmation for guides, Factbook entries and searches", () =>
   it("confirms a new Factbook row", async () => {
     const target = factbook("bk.#David");
     const before = studyData.snapshotHistory(target);
-    addRow(historyPath, "f3", "Factbook", "David", "Factbook|ReportId=ref:bk.#David");
+    addRow(historyPath, "f3", "Factbook | David", "", "Factbook|ReportId=ref:bk.#David");
     const r = await studyData.waitForHistoryVisit(target, before, FAST);
     expect(r.status === "confirmed" && r.visit.id).toBe("f3");
   });
@@ -987,7 +992,7 @@ describe("history confirmation for guides, Factbook entries and searches", () =>
     const books = search("grace", "BooksSearch");
     const beforeAllSearch = studyData.snapshotHistory(all);
     const beforeBooksSearch = studyData.snapshotHistory(books);
-    addRow(historyPath, "s3", "Search", "grace", "Search|QueryText=grace|SearchKindName=AllSearch");
+    addRow(historyPath, "s3", "Search", "grace | All", "Search|QueryText=grace|SearchKindName=AllSearch");
     const r = await studyData.waitForHistoryVisit(all, beforeAllSearch, FAST);
     expect(r.status === "confirmed" && r.visit.id).toBe("s3");
     expect(await studyData.waitForHistoryVisit(books, beforeBooksSearch, FAST)).toEqual({ status: "unconfirmed" });
@@ -1044,6 +1049,14 @@ describe("openConfirmationText", () => {
     const sermonStarter = { ...guideVisit, title: "Sermon Starter Guide", subtitle: null };
     expect(openConfirmationText({ status: "confirmed", visit: sermonStarter }, "Sermon Starter Guide for Healing", "guide", "win32")).toBe(
       "Opened Sermon Starter Guide in Logos. This only opens the Logos UI on the user's screen — no data is returned to you."
+    );
+    const factbookVisit = { ...guideVisit, title: "Factbook | Sabbath", subtitle: null, kind: "Factbook" };
+    expect(openConfirmationText({ status: "confirmed", visit: factbookVisit }, "Factbook entry Sabbath (`bk.%Sabbath`)", "factbook", "win32")).toBe(
+      "Opened Factbook | Sabbath in Logos. This only opens the Logos UI on the user's screen — no data is returned to you."
+    );
+    const searchVisit = { ...guideVisit, title: "Search", subtitle: "justification by faith | All", kind: "Search" };
+    expect(openConfirmationText({ status: "confirmed", visit: searchVisit }, 'search for "justification by faith" across all resources', "searchall", "win32")).toBe(
+      "Opened Search (justification by faith | All) in Logos. This only opens the Logos UI on the user's screen — no data is returned to you."
     );
   });
 
@@ -1504,7 +1517,7 @@ and the `search_all` row (Search & Discovery) with:
 ```
 
 ```markdown
-| 17 | "Search all resources for 'baptism'" | `search_all` | Returns "Opened … (baptism)" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 17 | "Search all resources for 'baptism'" | `search_all` | Returns "Opened Search (baptism \| All)" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 ```
 
 ```markdown
@@ -1514,7 +1527,7 @@ and the `search_all` row (Search & Discovery) with:
 4. Follow-up checks — replace rows 8a, 16a and 16b:
 
 ```markdown
-| 8a | "Open the person Moses" (pass kb_id `bk.#Moses` from test 8's list) | `open_factbook` | Returns "Opened …" or "Logos is already showing …" (Moses), or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 8a | "Open the person Moses" (pass kb_id `bk.#Moses` from test 8's list) | `open_factbook` | Returns "Opened Factbook \| Moses" or "Logos is already showing Factbook \| Moses", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 16a | "Open the Passage Guide for John 5:1" | `open_guide` | Returns "Opened Passage Guide …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 16b | "Open the Topic Guide for Sabbath" | `open_guide` | Returns "Opened Topic Guide …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 ```
@@ -1549,10 +1562,10 @@ Restart the MCP client so it loads `dist/`; with Logos open and idle, record for
 1. `find_passage_resources passage="John 5:1" kind="commentary"` lists Carson (PNTC Jn) and Phillips (REC Jn).
 2. `open_resource resource_id="LLS:29.48.20" reference="John 5:14"` replies "Opened PNTC Jn at John 5:14 …" and the tab appears.
 3. `navigate_passage "John 5:1"` replies "Opened LEB at John 5:1 …"; calling it again at once replies "Logos is already showing LEB at John 5:1 …" within about 2 seconds.
-4. `open_guide guide_type="Passage Guide" reference="John 5:1"` replies "Opened Passage Guide (…)"; calling it again at once replies "Logos is already showing Passage Guide (…)". A "did not confirm" reply while the guide visibly opened means Passage Guide's `TemplateName` is not `PassageGuide`: read the new row's `Bookmark` in `history.db` and fix the template mapping in `matchesIdentity`.
+4. `open_guide guide_type="Passage Guide" reference="John 5:1"` replies "Opened Passage Guide (…)"; calling it again at once replies "Logos is already showing Passage Guide (…)".
 5. `open_guide guide_type="Topic Guide" reference="bk.%Sabbath"`, then the same again: "Opened Topic Guide (…)", then "Logos is already showing …".
-6. `open_factbook kb_id="bk.%Sabbath"`, then the same again: "Opened …", then "Logos is already showing …". If the second reply is "did not confirm" after about 8 seconds, record the row's `ReportId` (how Logos stores the `%`) and adjust `matchesLocation`.
-7. `search_all "justification by faith"`, then the same again: "Opened … (justification by faith)", then "Logos is already showing …" or a second "Opened …" (whether Logos re-runs a repeated search is unprobed; both are correct). If the second is "did not confirm", record the row's `QueryText` encoding and adjust `matchesLocation`.
+6. `open_factbook kb_id="bk.%Sabbath"`, then the same again: "Opened Factbook | Sabbath …", then "Logos is already showing Factbook | Sabbath …".
+7. `search_all "justification by faith"`, then the same again: "Opened Search (justification by faith | All) …", then "Logos is already showing …" (a repeated search adds no row; Logos only bumps `LastVisited`).
 8. Optional: while Logos is busy (e.g. just after launch), `open_resource` replies "Logos did not confirm opening it" within about 8 seconds.
 
 - [ ] **Step 6: Push and open the PR (ask Will before pushing)**
