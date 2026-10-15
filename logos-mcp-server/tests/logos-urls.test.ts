@@ -27,7 +27,7 @@ describe("buildPassageUrl", () => {
 });
 
 describe("buildResourceUrl", () => {
-  it("is the same in both styles", () => {
+  it("builds one link form, since it takes no style parameter", () => {
     expect(buildResourceUrl("LLS:29.48.20", "John 5:14")).toBe("logosres:LLS%3A29.48.20;ref=bible.Jn5.14");
     expect(buildResourceUrl("LLS:29.48.20")).toBe("logosres:LLS%3A29.48.20");
   });

@@ -250,7 +250,7 @@ export function getPreferredBibleResourceId(): string | null {
       db.close();
     }
   } catch {
-    return null; // catalog.db missing/unreadable
+    return null; // missing/unreadable catalog.db, and (by design) any unexpected SQL/schema error
   }
 }
 

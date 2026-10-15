@@ -213,7 +213,7 @@ LogosBibleSoftwareMCP/
 │   │   │   ├── sqlite-reader.ts       # Read-only Logos SQLite access
 │   │   │   ├── catalog-reader.ts      # Library catalog search (catalog.db)
 │   │   │   └── screenshot-capture.ts  # macOS window capture
-│   │   └── utils/                     # Markup stripping, blob decoding, tool text
+│   │   └── utils/                     # clippings.ts (blob decoding), strip-markup.ts, tool-text.ts
 │   └── dist/                          # Built output (after npm run build)
 ```
 
@@ -260,7 +260,7 @@ Logos 54 ignores the `logos4:///…?…` query-string links older versions accep
 | Value | Links sent | Use when |
 |---|---|---|
 | `current` (default) | `logosres:<resource>;ref=…` for passages and resources; `logos4:Guide;t=<title>;ref=…`, `logos4:Factbook;ref=<id>` and `logos4:Search;kind=AllSearch;q=…;syntax=v2` | Current Logos (verified on Logos 54, Windows) |
-| `legacy` | The `logos4:///Bible/…`, `logos4:///Guide?t=…&ref=…`, `logos4:///Factbook?ref=…` URLs used before | Older Logos versions where the current formats open nothing (reported to work on macOS Logos 48) |
+| `legacy` | The `logos4:///Bible/…`, `logos4:///Guide?t=…&ref=…`, `logos4:///Factbook?ref=…`, `logos4:///WordStudy?word=…` and `logos4:///Search?kind=AllSearch&syntax=v2&q=…` URLs used before | Older Logos versions where the current formats open nothing (reported to work on macOS Logos 48) |
 
 ```json
 "env": {

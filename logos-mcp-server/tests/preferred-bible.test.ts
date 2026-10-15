@@ -20,11 +20,12 @@ describe("getPreferredBibleResourceId with a catalog", () => {
     createDb(
       join(dirs.catalogDir, "LibraryCatalog", "catalog.db"),
       `${CATALOG_SCHEMA}
-       INSERT INTO Records (ResourceId, Type, Title, UseCount, Availability) VALUES
-         ('LLS:LEB', 'text.monograph.bible', 'The Lexham English Bible', 19, 2),
-         ('LLS:CSB', 'text.monograph.bible', 'Christian Standard Bible', 8, 2),
-         ('LLS:KJV', 'text.bible', 'King James Version', 50, 0),
-         ('LLS:PNTCJN', 'text.monograph.commentary.bible', 'The Gospel according to John', 100, 2);`
+       INSERT INTO Records (ResourceId, Type, Title, UseCount, Availability, IsDataset) VALUES
+         ('LLS:LEB', 'text.monograph.bible', 'The Lexham English Bible', 19, 2, 0),
+         ('LLS:CSB', 'text.monograph.bible', 'Christian Standard Bible', 8, 2, 0),
+         ('LLS:KJV', 'text.bible', 'King James Version', 50, 0, 0),
+         ('LLS:PNTCJN', 'text.monograph.commentary.bible', 'The Gospel according to John', 100, 2, 0),
+         ('LLS:DATASET', 'text.bible', 'Bible Dataset', 500, 2, 1);`
     );
     useFixtureDirs(dirs);
     catalog = await import("../src/services/catalog-reader.js");

@@ -56,6 +56,12 @@ describe("decodeLogosBlob", () => {
     expect(decodeLogosBlob(blob)).toBe("[1,2]");
   });
 
+  it("decodes an unknown prefix byte best-effort as UTF-8, header included", () => {
+    const blob = withHeader(0x07, Buffer.from("abc", "utf-8"), 3);
+    expect(decodeLogosBlob(blob)).toBe(blob.toString("utf-8"));
+    expect(decodeLogosBlob(blob)?.endsWith("abc")).toBe(true);
+  });
+
   it("returns null for a blob shorter than its header", () => {
     expect(decodeLogosBlob(Buffer.from([0x02, 0x05, 0x00]))).toBeNull();
   });

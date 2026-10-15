@@ -25,7 +25,8 @@ const LOGOS54_ROWS = `
     (3, 'h1', '2023-05-24T01:15:39Z', '2023-05-24T01:15:39Z', 1, NULL, 2, '[{"textRange":{"resourceId":"LLS:NIVAC66RO","offset":156977,"length":157}}]', 2, NULL, '', 0),
     (4, 'h2', '2023-05-24T01:16:10Z', '2023-05-24T01:16:10Z', 1, NULL, 2, '[]', 2, NULL, '', 1),
     (5, 'n3', '2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z', 0, '${content("Word made flesh")}', 1, '[]', NULL, '[]', '', 0),
-    (6, 'n4', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z', 0, '${content("Tobit note")}', 1, '[]', NULL, '[]', '', 0);
+    (6, 'n4', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z', 0, '${content("Tobit note")}', 1, '[]', NULL, '[]', '', 0),
+    (7, 'n5', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, '${content("Contend for the faith")}', 1, '[{"reference":{"raw":"bible.86.1.3"}}]', NULL, '[]', '', 0);
   INSERT INTO NoteAnchorFacetReferences (NoteId, AnchorIndex, DataTypeId, BibleBook, SortKey, Reference) VALUES
     (1, 0, 1, 65, x'00', 'bible.65.9.35'),
     (3, 0, 1, 66, x'00', 'bible.66.1.8-66.1.15'),
@@ -70,6 +71,12 @@ describe("notes and highlights on a Logos 54 schema (facet table)", () => {
   it("shows the raw reference for an unmapped book", () => {
     const note = reader.getUserNotes().find((n) => n.externalId === "n4");
     expect(note?.anchorReference).toBe("bible.44.1.1");
+  });
+
+  it("falls back to AnchorsJson when a note has a reference anchor but no facet row", () => {
+    const note = reader.getUserNotes().find((n) => n.externalId === "n5");
+    expect(note?.anchorReference).toBe("Jude 1:3");
+    expect(note?.anchorRawReferences).toEqual(["bible.86.1.3"]);
   });
 
   it("leaves unanchored notes without a reference", () => {

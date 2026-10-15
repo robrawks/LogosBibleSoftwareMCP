@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "path";
+import { mkdirSync, writeFileSync } from "fs";
 import {
   makeFixtureDirs,
   createDb,
@@ -156,5 +157,29 @@ describe("knowledge lookup without AutoComplete.db", () => {
 
   it("still opens a knowledge-base ID given directly", () => {
     expect(lookup.resolveKnowledgeId("bk.#Moses").status).toBe("resolved");
+  });
+});
+
+describe("knowledge lookup with an unreadable AutoComplete.db", () => {
+  let dirs: FixtureDirs;
+  let lookup: Lookup;
+
+  beforeAll(async () => {
+    dirs = makeFixtureDirs();
+    const dbDir = join(dirs.catalogDir, "AutoComplete");
+    mkdirSync(dbDir, { recursive: true });
+    writeFileSync(join(dbDir, "AutoComplete.db"), "this is not a SQLite database, just text padding ".repeat(50));
+    useFixtureDirs(dirs);
+    lookup = await import("../src/services/knowledge-lookup.js");
+  });
+  afterAll(() => cleanupFixtureDirs(dirs));
+
+  it("says the table could not be read, without telling the user to open Logos", () => {
+    const r = lookup.resolveKnowledgeId("Moses");
+    expect(r.status).toBe("unavailable");
+    if (r.status === "unavailable") {
+      expect(r.message).toMatch(/could not be read/);
+      expect(r.message).not.toMatch(/open Logos/);
+    }
   });
 });

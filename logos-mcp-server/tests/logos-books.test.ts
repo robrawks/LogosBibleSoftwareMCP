@@ -5,6 +5,7 @@ import {
   parseLogosBibleRef,
   logosRawToHuman,
 } from "../src/services/logos-books.js";
+import { resolveBookName } from "../src/services/reference-parser.js";
 
 // Book numbers verified on Logos 54 by opening logosres:LLS:LEB;ref=bible.N.1.1
 // (design doc F1): 1 Genesis, 19 Psalms, 39 Malachi, 61 Matthew, 87 Revelation;
@@ -113,9 +114,31 @@ describe("logosRawToHuman", () => {
     expect(logosRawToHuman("bible.64.5-64.5")).toBe("John 5");
   });
 
+  it("formats a range whose start has no verse but whose end does (documented as-is)", () => {
+    // Documented-as-is: the start is chapter-only, so the end keeps its full
+    // chapter:verse form, giving the slightly odd "John 1-1:5".
+    expect(logosRawToHuman("bible.64.1-64.1.5")).toBe("John 1-1:5");
+  });
+
   it("returns null when any book is unmapped or the input is not a Bible reference", () => {
     expect(logosRawToHuman("bible.44.3.21")).toBeNull();
     expect(logosRawToHuman("bible.64.1.1-44.1.1")).toBeNull();
     expect(logosRawToHuman("page.9-13")).toBeNull();
+  });
+});
+
+describe("Logos book names and reference-parser names", () => {
+  it("round-trips every mapped Logos book through resolveBookName and logosBookNumber", () => {
+    const numbers = [
+      ...Array.from({ length: 39 }, (_, i) => i + 1),
+      ...Array.from({ length: 27 }, (_, i) => i + 61),
+    ];
+    expect(numbers).toHaveLength(66);
+    for (const n of numbers) {
+      const name = logosBookName(n);
+      expect(name, `book ${n}`).not.toBeNull();
+      expect(resolveBookName(name as string), name as string).toBe(name);
+      expect(logosBookNumber(name as string), name as string).toBe(n);
+    }
   });
 });
