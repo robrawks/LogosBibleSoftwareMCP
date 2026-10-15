@@ -1004,7 +1004,7 @@ git commit -m "fix: skip the full 5-byte header when decoding raw logos blobs"
   - `NoteResult` gains `anchorRawReferences: string[]`; `anchorReference` now comes from the facet table first.
   - `parseAnchorRawReferences(anchorsJson: string | null): string[]` (exported).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/anchor-parsing.test.ts` (add `parseAnchorRawReferences` to its import list):
 
@@ -1163,12 +1163,12 @@ describe("notes and highlights on a legacy schema (no facet table)", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/notes-reader.test.ts tests/anchor-parsing.test.ts`
 Expected: FAIL — `parseAnchorRawReferences` is not exported; `anchorRawReferences`/`reference` are undefined; "Acts 9" filter returns nothing.
 
-- [ ] **Step 3: Extend `HighlightResult`**
+- [x] **Step 3: Extend `HighlightResult`**
 
 In `src/types.ts`, replace the `HighlightResult` interface with:
 
@@ -1187,7 +1187,7 @@ export interface HighlightResult {
 }
 ```
 
-- [ ] **Step 4: Implement facet lookups in `sqlite-reader.ts`**
+- [x] **Step 4: Implement facet lookups in `sqlite-reader.ts`**
 
 Update imports:
 
@@ -1400,7 +1400,7 @@ export function parseAnchorReference(anchorsJson: string | null): string | null 
 }
 ```
 
-- [ ] **Step 5: Show the verse in `get_user_highlights`**
+- [x] **Step 5: Show the verse in `get_user_highlights`**
 
 In `src/index.ts`, in the `get_user_highlights` handler, replace the `lines` line with:
 
@@ -1415,17 +1415,19 @@ In `src/index.ts`, in the `get_user_highlights` handler, replace the `lines` lin
 
 and change that tool's description to end "Returns each highlight's style, the resource title it lives in, the Bible passage it covers, and its date."
 
-- [ ] **Step 6: Run the tests and the build**
+- [x] **Step 6: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/types.ts src/services/sqlite-reader.ts src/index.ts tests/notes-reader.test.ts tests/anchor-parsing.test.ts
 git commit -m "fix: read note and highlight verses from the logos 54 facet table — falls back to AnchorsJson on older installs"
 ```
+
+> **As built (`125480f`):** matches plan.
 
 ---
 
