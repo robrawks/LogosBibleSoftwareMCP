@@ -2225,7 +2225,7 @@ git commit -m "feat: find the user's most-used bible for passage links"
   - `formatKnowledgeChoices(matches: KnowledgeEntry[]): string`
 - Produces (`src/config.ts`): `OPTIONAL_DB_NAMES: ReadonlySet<string>` — `DB_PATHS` keys that `diagnose` reports as "not present" instead of failing. PR 2 adds its stores.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/tool-text.test.ts`:
 
@@ -2272,12 +2272,12 @@ describe("formatKnowledgeChoices", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/tool-text.test.ts`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Create `src/utils/tool-text.ts`**
+- [x] **Step 3: Create `src/utils/tool-text.ts`**
 
 ```typescript
 import type { CaptureToolType, KnowledgeEntry } from "../types.js";
@@ -2321,7 +2321,7 @@ export function formatKnowledgeChoices(matches: KnowledgeEntry[]): string {
 }
 ```
 
-- [ ] **Step 4: Use it in `get_logos_state`; mark screenshots macOS-only**
+- [x] **Step 4: Use it in `get_logos_state`; mark screenshots macOS-only**
 
 In `src/index.ts`, add the import:
 
@@ -2351,7 +2351,7 @@ In the `capture_panel_screenshot` registration (block 23), prefix its descriptio
 
 `DISPATCHED_NOTE`, `uiFollowUpHint` and `formatKnowledgeChoices` are used in Task 9; until then `tsc` accepts the unused named imports (no `noUnusedLocals`).
 
-- [ ] **Step 5: Let `diagnose` tolerate stores only some Logos versions have**
+- [x] **Step 5: Let `diagnose` tolerate stores only some Logos versions have**
 
 In `src/config.ts`, add after the `DB_PATHS` object:
 
@@ -2385,17 +2385,19 @@ In `src/index.ts`, add `OPTIONAL_DB_NAMES` to the config import (Task 9 rewrites
 
 (No unit test: both are report formatting. PR 2's server smoke test asserts the `diagnose` tool's wording.)
 
-- [ ] **Step 6: Run the tests and the build**
+- [x] **Step 6: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/utils/tool-text.ts src/index.ts src/config.ts src/cli.ts tests/tool-text.test.ts
 git commit -m "fix: report honest logos status on windows — no window titles or screenshot hints off macos, optional stores don't fail diagnose"
 ```
+
+> **As built (`9e0772c`):** matches plan.
 
 ---
 
