@@ -39,18 +39,18 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 | F5 | Guides open with semicolon links and the guide's **display title**. | `logos4:Guide;t=Passage%20Guide;ref=bible.Jn5.1`, `…t=Exegetical%20Guide;ref=bible.Jn5.14`, `…t=Topic%20Guide;ref=bk.%25Sabbath` opened correctly. Internal template names (`PassageGuide`, `ExegeticalGuide`) opened blank tabs. Query-string form did nothing. |
 | F6 | Factbook needs a knowledge-base ID. | `logos4:Factbook;ref=bk.%23Moses` and `…ref=bk.%25Sabbath` opened the right entries; `ref=Moses` and the query-string form did not. IDs found in the lookup table and in saved layouts (`ReportId=ref:bk.#Nicodemus.1`). |
 | F7 | Word study links are unsolved. | `logos4:Guide;t=Bible%20Word%20Study;ref=…` with `g:agape`, `q=g:agape`, `lemma.lbs/grc/ἀγάπη`, and `en:healing` all opened an empty word box. |
-| F8 | Sermon Starter Guide opens but its subject was not confirmed. | `…t=Sermon%20Starter%20Guide;ref=bk.to%3ADBT-5333` opened a tab titled only "Sermon Starter Guide". |
+| F8 | Sermon Starter Guide opens but ignores its subject. | `…t=Sermon%20Starter%20Guide;ref=bk.to%3ADBT-5333` opened a tab titled only "Sermon Starter Guide". Re-tested with Logos idle (2026-10-15): `ref=bk.to%3ADBT-5333`, `ref=bk.to:DBT-5333` and `ref=bk.%25healing` all wrote a history row `Guides\|TemplateName=SermonStarterGuide` with no `Key` and an empty subtitle, unlike Topic Guide's `Key=Topic\|ref=…` and subtitle "Sabbath". |
 | F9 | `get_reading_progress` reads the wrong store. | `ReadingLists.db` is empty (0/0); two plans live in `Documents/ReadingPlan/ReadingPlan.db`. |
 | F10 | Unread local study data. | `readingprogressmanager.db` (69 resources with percent read), `history.db` (45 visits with passages), `PassageList.db` (1 list; path already in `DB_PATHS`, no tool). |
 | F11 | The catalog records each resource's Bible coverage and commentary type. | `Records.ReferenceSupersets` (`bible.64.1.1-64.21.25` for Carson's John) and `Traits` (`commentary-purpose:exegetical`, `era:contemporary`, `author-denomination-group:…`). For John 5:1 this yields 15 commentaries + 22 other resources, a superset of the Passage Guide's commentary list. |
-| F12 | Opening a resource adds a `history.db` row; guides and Factbook do not. | Used as the confirmation signal in PR 3. `Guides\|…` history rows were seen once on the test install; PR 1's verification records which is right. |
+| F12 | Logos adds a `history.db` row when it arrives at a resource, guide, Factbook entry or search, and bumps `LastVisited` on the row it leaves. Sending the location it is already showing adds no row. | Probed with Logos idle (2026-10-15), reading `history.db` read-only after each link. Resource: a new row 0.35–1.7 s after the link, `LastVisited` = the visit time. Guides: `Guides\|Key=BibleReference%7cref%3dbible.64.5.14\|TemplateName=ExegeticalGuide`. Factbook: `Factbook\|ReportId=ref:bk.#Moses`. Search: `Search\|…\|QueryText=…\|SearchKindName=AllSearch`. Returning to an earlier location added a new row (higher rowid). Re-sending LEB John 5:14 while showing it added nothing. Used as the confirmation signal in PR 3. An earlier reading ("guides and Factbook add no row") came from a run while Logos was not processing links (F20). |
 | F13 | Reads are safe while Logos runs. | Three rounds of every read tool against the live files with Logos open: no lock errors. The diagnose run did not touch live `-shm`/`-wal` files. |
 | F14 | Profile auto-detection works for non-`.w14` names. | `xmt0sr2y.xit` was found by the relaxed fallback in `config.ts`. |
 | F15 | On Windows, `get_logos_state` can report only running/not running; `capture_panel_screenshot` cannot work. | The window helper is compiled Objective-C (`clang`); `ensureHelper()` fails and is swallowed. |
 | F16 | `ReadingPlanStatus.ReadSessions` is the index of the last completed session (inclusive), not a count. | CSB plan: `259` of 261 sessions (index 259 has no readings); Logos's Today page shows its next reading as Rev 22 = session 260. 40 Questions plan: `0`; Today page shows pp 9–13 = session 1. A count would predict session 0 (pp 3–8) for the second plan. `ReadSessionsMetadata` was `{"259":{"completedDate":…}}` in one read and `null` in a later one, so it is not reliable. |
 | F17 | Logos `0x02` blobs have a 5-byte header: `0x02` + little-endian uint32 length + payload. | `PassageLists.CompressedItems`: `02 53 00 00 00` then 83 bytes of JSON; parsing from offset 4 fails. `decodeClippingBlob()` skips only 4 bytes for `0x02` (its test fixture is a hand-built 4-byte header); its `0x01` gzip branch already skips 5. No clipping rows exist on the test install to confirm the clipping side. |
 | F18 | The Passage Guide's resource prioritization is not stored in any local SQLite database. | Searched every profile database for "priorit": only a sync marker (`UserEventManager.Events` row `ResourcePriorities` with a revision blob) and unrelated `Priority` columns. Logos's code references `ResourcePrioritiesSyncBaseUri`, so the list is likely fetched from Faithlife's servers. |
-| F19 | Saved Search panels store `SearchKindName` (`AllSearch`, `BooksSearch`), `QueryText` and `SyntaxVersion=V2`. | `layouts.db` panel settings. A working `search_all` link was not found (see Open Questions). |
+| F19 | `logos4:Search;kind=AllSearch;q=<query>;syntax=v2` runs an All search. Saved Search panels store `SearchKindName` (`AllSearch`, `BooksSearch`), `QueryText` and `SyntaxVersion=V2`. | `layouts.db` panel settings. Probed with Logos idle (2026-10-15): `q=baptism` and `q=justification%20by%20faith` opened All searches with the query run (history subtitles "baptism \| All", "justification by faith \| All"); `kind=BooksSearch` also works; `SearchKindName=AllSearch;QueryText=baptism` opened Search with no query. |
 | F20 | When Logos is busy, a link can leave a second `Logos.exe` running and nothing opens. | After Logos recovered from a hang, `logosres:LLS:LEB;ref=bible.64.5.1` started a second `Logos.exe` that stayed running; no history row appeared, and known-good guide links also did nothing. |
 
 ## Goals
@@ -133,9 +133,9 @@ All Logos URL construction moves here; `logos-app.ts` keeps only the launching (
 | `open_guide` | `logos4:Guide;t=<encodeURIComponent(title)>;ref=bible.<LogosRef>` |
 | `open_factbook` | `logos4:Factbook;ref=<encodeURIComponent(kbId)>` (from 1.4) |
 | `open_word_study` | `logos4:Guide;t=Bible%20Word%20Study` (empty; see 1.5) |
-| `search_all` | Verify during implementation (see Open Questions); if no working form is found, same honest treatment as 1.5 |
+| `search_all` | `logos4:Search;kind=AllSearch;q=<encodeURIComponent(query)>;syntax=v2` (F19) |
 
-`<LogosRef>` is today's `toLogosUrlRef()` output (`Jn5.1`). `open_guide`'s `guide_type` description lists the verified titles: "Passage Guide", "Exegetical Guide", "Topic Guide" (topic guides take a knowledge-base ID via 1.4); "Sermon Starter Guide" is described as unconfirmed. With `legacy`, every builder returns today's exact string. Each builder gets a unit test for both styles.
+`<LogosRef>` is today's `toLogosUrlRef()` output (`Jn5.1`). `open_guide`'s `guide_type` description lists the verified titles: "Passage Guide", "Exegetical Guide", "Topic Guide" (topic guides take a knowledge-base ID via 1.4); "Sermon Starter Guide" is described as opening without its theme (F8). With `legacy`, every builder returns today's exact string. Each builder gets a unit test for both styles.
 
 ### 1.4 Knowledge-base lookup — new `src/services/knowledge-lookup.ts`
 
@@ -146,7 +146,7 @@ All Logos URL construction moves here; `logos-app.ts` keeps only the launching (
 
 ### 1.5 Honest word study
 
-`open_word_study` opens an empty Bible Word Study and returns: "Opened Bible Word Study. Logos does not accept the word via link — ask the user to type it (use `g:` / `h:` for Greek/Hebrew, e.g. `g:agape`)." The README's limitations section lists the formats tried (F7).
+`open_word_study` opens an empty Bible Word Study and returns: "Opened Bible Word Study. Logos does not accept the word via link — ask the user to type it (use `g:` / `h:` for Greek/Hebrew, e.g. `g:agape`)." The README's limitations section lists the formats tried (F7). Sermon Starter Guide gets the same honesty: `open_guide`'s description and the README say it opens without its theme (F8).
 
 ### 1.6 Honest status on Windows
 
@@ -166,7 +166,7 @@ All Logos URL construction moves here; `logos-app.ts` keeps only the launching (
 
 ### 1.8 Docs
 
-README: link-style switch, Logos book-number note, limitations (word study, sermon starter, search), updated troubleshooting. `.claude/agents/tool-tester.md`: test prompts for Factbook disambiguation and guide titles.
+README: link-style switch, Logos book-number note, limitations (word study, sermon starter), updated troubleshooting. `.claude/agents/tool-tester.md`: test prompts for Factbook disambiguation and guide titles.
 
 ## PR 2: Study Data
 
@@ -210,7 +210,7 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 
 ### 3.2 `open_resource` confirms
 
-Before launching, snapshot the resource's `history.db` rows (`Id` → `LastVisited`). After launching, poll `history.db` (read-only) for up to 8 s for a row for that resource that is not in the snapshot, or whose `LastVisited` changed. A launch timestamp is not used: `LastVisited` has whole-second resolution, so an earlier visit in the same second would count. A failed read while polling counts as "not yet". Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them.
+Before launching, snapshot the `Id`s of the resource's `history.db` rows, and note whether the most recently inserted row (highest rowid: where Logos is now) is already that resource at the requested location. After launching, poll `history.db` (read-only) for up to 8 s for a **new** row for that resource, one whose `Id` is not in the snapshot. A changed `LastVisited` on an existing row doesn't count: Logos bumps it on the row the user leaves (F12). A launch timestamp is not used either: `LastVisited` has whole-second resolution, so an earlier visit in the same second would count. A failed read while polling counts as "not yet". Report "Opened <abbrev> at <Subtitle>". If Logos was already showing the location, it adds no row (F12): wait only 2 s and report "Logos is already showing <abbrev> at <Subtitle>". Otherwise report "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them; they do add history rows (F12), so confirming them is a possible follow-up.
 
 ### 3.3 No batch tool
 
@@ -258,20 +258,21 @@ Derived from the code at `6d4a414`, its tests, `docs/design/`, and commit histor
 - Two-schema fixtures (legacy and Logos 54 shapes) for every reader.
 
 **Manual verification on Windows Logos 54 (recorded in each PR description)**
-- PR 1: a Romans note/highlight labeled Romans; `get_user_notes passage="Acts 9"` returns the Acts 9:35 note; `navigate_passage "John 5:1"` adds a history row; Passage/Exegetical/Topic guides open (tab titles); `open_factbook "Moses"` disambiguates, `kb_id="bk.#Moses"` opens; word study message is honest.
+- PR 1: a Romans note/highlight labeled Romans; `get_user_notes passage="Acts 9"` returns the Acts 9:35 note; `navigate_passage "John 5:1"` adds a history row; Passage/Exegetical/Topic guides open (tab titles); `open_factbook "Moses"` disambiguates, `kb_id="bk.#Moses"` opens; word study message is honest; `search_all` runs an All search.
 - PR 2: reading plans' next readings match Logos's Today page (CSB → Rev 22, 40 Questions → pp 9–13 on the test install); per-book progress matches the resource's progress indicator; history matches the History panel.
-- PR 3: `find_passage_resources "John 5:1" kind=commentary` lists Carson (PNTC Jn) and Phillips (REC Jn); `open_resource` confirms via history.
+- PR 3: `find_passage_resources "John 5:1" kind=commentary` lists Carson (PNTC Jn) and Phillips (REC Jn); `open_resource` confirms via history; re-sending the location Logos already shows reports "already showing".
 
 **Requested of the maintainer on macOS**
 - New link formats with `LOGOS_LINK_STYLE=current`; one NT note label; database paths for reading plans, progress and history.
 
-## Open Questions (resolved during implementation, not blocking the design)
+## Open Questions
 
-1. **`search_all` link.** Saved panels use `SearchKindName`, `QueryText` and `SyntaxVersion` (F19). Try, with Logos idle and the workspace (not the Today page) showing: `logos4:Search;kind=AllSearch;q=…;syntax=v2`, `logos4:Search;kind=BooksSearch;q=…`, and `logos4:Search;SearchKindName=AllSearch;QueryText=…`. These three were tried once while Logos was not processing any links (F20), so that run proves nothing. If none works, give `search_all` the honest treatment from 1.5.
-2. **Sermon Starter theme.** Confirm whether `logos4:Guide;t=Sermon%20Starter%20Guide;ref=bk.to%3ADBT-5333` loads "Healing" (F8), under the same idle conditions. If not, describe the guide as opening without a theme.
+None open.
 
 ### Resolved
 
 - `ReadSessions` meaning → F16, applied in 2.1.
 - `0x02` blob header length → F17, applied in 1.7 and 2.4.
 - Passage Guide prioritization storage → F18, applied in 3.1 (not used).
+- `search_all` link → F19 (`logos4:Search;kind=AllSearch;q=…;syntax=v2`), applied in 1.3. Probed 2026-10-15 with Logos idle; an earlier run that found nothing was made while Logos was not processing links (F20).
+- Sermon Starter theme → F8 (the subject is ignored), applied in 1.3 and 1.5.
