@@ -460,7 +460,7 @@ git commit -m "refactor: share read-only db helpers and add a sqlite fixture har
   - `parseLogosBibleRef(raw: string): LogosBibleRange | null`
   - `logosRawToHuman(raw: string): string | null` — `null` for non-Bible input or any unmapped book (40–60, >87).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/logos-books.test.ts`:
 
@@ -689,12 +689,12 @@ describe("parseAnchorReference", () => {
 
 Leave the `describe("parseTagsJson", ...)` block unchanged.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/logos-books.test.ts tests/anchor-parsing.test.ts`
 Expected: `logos-books` FAILS to load the module; `anchor-parsing` FAILS on the Acts/Romans/John cases (the old 1–66 table reads `bible.65` as Jude).
 
-- [ ] **Step 3: Create `src/services/logos-books.ts`**
+- [x] **Step 3: Create `src/services/logos-books.ts`**
 
 ```typescript
 // Logos's own Bible book numbers, as used in raw references such as
@@ -803,7 +803,7 @@ export function logosRawToHuman(raw: string): string | null {
 }
 ```
 
-- [ ] **Step 4: Switch `sqlite-reader.ts` to the new module**
+- [x] **Step 4: Switch `sqlite-reader.ts` to the new module**
 
 Add the import beside the others:
 
@@ -813,17 +813,19 @@ import { logosRawToHuman } from "./logos-books.js";
 
 Delete, under "Anchor / Tag JSON parsing": the `// Logos Bible book numbers (standard Protestant canon order, 1-66)…` comment and `BOOKS_BY_NUMBER` table, the `// Matches raw Logos reference strings…` comment and `BIBLE_RAW_RE` constant, and the whole `bibleRawToHuman` function. In `parseAnchorReference`, replace `const human = bibleRawToHuman(raw);` with `const human = logosRawToHuman(raw);`. Then `grep -n "BOOKS_BY_NUMBER\|BIBLE_RAW_RE\|bibleRawToHuman" src/` prints nothing.
 
-- [ ] **Step 5: Run the tests and the build**
+- [x] **Step 5: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/services/logos-books.ts src/services/sqlite-reader.ts tests/logos-books.test.ts tests/anchor-parsing.test.ts
 git commit -m "fix: label bible references with logos book numbers (nt is 61-87, not 40-66)"
 ```
+
+> **As built (`669367d`):** matches plan.
 
 ---
 
