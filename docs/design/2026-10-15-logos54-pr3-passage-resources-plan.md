@@ -19,8 +19,9 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 | ReferenceSupersets | Catalog column listing the Bible ranges a resource covers, **tab-separated** on Logos 54: `bible.72.1.1-72.4.18\tbible.78.1.1-78.1.25` (Colossians + Philemon). Non-Bible entries (`af.1-2`, `pseud.3`) are ignored. |
 | Open end | A range part without chapter or verse: `bible.64` = all of John; `bible.64.5-64.6` = all of chapters 5–6. |
 | Traits | Catalog column of tab-separated `key:value` entries, e.g. `commentary-purpose:exegetical\tera:contemporary\tauthor-denomination-group:bk.%Baptists`. |
-| Coverage cache | The parsed catalog rows kept in memory until `catalog.db`'s modification time changes. |
-| History confirmation | A `history.db` row for the resource with `LastVisited` at or after the launch time, which Logos writes when it opens a resource (design doc F12). |
+| Coverage cache | The parsed catalog rows kept in memory until `catalog.db` or its `catalog.db-wal` file changes (modification time or size). |
+| History snapshot | The resource's `history.db` rows (`Id` → `LastVisited`) read just before a link is sent. |
+| History confirmation | A `history.db` row for the resource that is not in the snapshot, or whose `LastVisited` moved on since it. Logos writes one when it opens a resource (design doc F12). |
 
 ## Global Constraints
 
@@ -44,6 +45,9 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 4. **`navigate_passage` also confirms via history** in the `current` link style: it now sends a resource link (PR 1), so the same check applies. (Task 3)
 5. **Multiple authors** (tab-separated in `Records.Authors`) are shown joined with "; ". (Task 2)
 6. **Guide and Factbook replies say the server doesn't check them**, rather than claiming Logos records nothing. F12 found no history row for them, but `Guides|…` rows were seen on the test install (PR 2's history fixtures copy one), and PR 1 Task 11 Step 2 item 8 records which is true. Confirming guides stays out of scope either way. (Task 3)
+7. **Confirmation compares against a snapshot, not the launch time.** The spec says "a row newer than the launch time". `LastVisited` has whole-second resolution, so an earlier visit to the same resource in the same second would count as confirmation (adversarial review, 2026-10-15). The handler snapshots the resource's history rows before launching and waits for a row that is new or whose `LastVisited` changed. That covers both a new row per visit, which is what the test install shows, and an in-place update. (Task 3)
+8. **The coverage cache also watches `catalog.db-wal`.** Logos keeps the catalog in WAL mode, so a committed change can sit in the `-wal` file without changing the main file's modification time. The cache key is the modification time and size of both files. `PRAGMA data_version` was considered and rejected: it is only comparable within one connection, and the server opens a new connection per call. (Task 2)
+9. **A failed read while polling counts as "not yet".** A transient lock or open failure while Logos writes `history.db` retries at the next interval rather than ending the poll or throwing out of the handler. (Task 3)
 
 ## File Structure
 
@@ -51,7 +55,7 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 |---|---|---|
 | `src/services/logos-books.ts` | Modify | `parseReferenceSupersets()`, `rangeContains()` |
 | `src/services/catalog-reader.ts` | Modify | `parseTraits()`, coverage cache, `findPassageResources()`, `PASSAGE_RESOURCE_KINDS` |
-| `src/services/study-data.ts` | Modify | `isoSeconds()`, `waitForHistoryVisit()` |
+| `src/services/study-data.ts` | Modify | `snapshotHistory()`, `waitForHistoryVisit()` |
 | `src/types.ts` | Modify | `PassageResource`, `HistoryConfirmation` |
 | `src/utils/tool-text.ts` | Modify | `openConfirmationText()` |
 | `src/index.ts` | Modify | Tool 28; confirmation in `open_resource`/`navigate_passage`; guide/Factbook wording |
@@ -281,6 +285,7 @@ git commit -m "feat: parse catalog bible coverage ranges and resource traits"
 
 ```typescript
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import Database from "better-sqlite3";
 import { join } from "path";
 import { utimesSync } from "fs";
 import {
@@ -393,6 +398,24 @@ describe("findPassageResources", () => {
     utimesSync(catalogPath, later, later);
     expect(ids(catalog.findPassageResources({ passage: "Acts 1:1", kind: "commentary" }))).toEqual(["LLS:ACTS"]);
   });
+
+  it("re-reads the catalog when a change is still only in its WAL file", () => {
+    // Logos keeps catalog.db in WAL mode: a committed write can stay in
+    // catalog.db-wal, leaving the main file's mtime unchanged, until a
+    // checkpoint. Autocheckpoint is off so the write stays there.
+    const writer = new Database(catalogPath);
+    try {
+      writer.pragma("journal_mode = WAL");
+      writer.pragma("wal_autocheckpoint = 0");
+      expect(ids(catalog.findPassageResources({ passage: "Jude 1:3", kind: "commentary" }))).toEqual([]);
+      writer.exec(
+        "INSERT INTO Records (ResourceId, Type, Title, UseCount, ReferenceSupersets) VALUES ('LLS:JUDE', 'text.monograph.commentary.bible', 'Jude', 1, 'bible.86');"
+      );
+      expect(ids(catalog.findPassageResources({ passage: "Jude 1:3", kind: "commentary" }))).toEqual(["LLS:JUDE"]);
+    } finally {
+      writer.close();
+    }
+  });
 });
 ```
 
@@ -460,7 +483,23 @@ interface CoverageRecord {
 }
 
 // Parsed coverage of every owned resource, kept until catalog.db changes.
-let coverageCache: { path: string; mtimeMs: number; records: CoverageRecord[] } | null = null;
+let coverageCache: { path: string; version: string; records: CoverageRecord[] } | null = null;
+
+// The catalog's on-disk version. Logos writes catalog.db in WAL mode, so a
+// committed change can sit in catalog.db-wal without touching the main file;
+// both files' mtime and size count. (PRAGMA data_version only compares within
+// one connection, and each call opens a new one.)
+function catalogVersion(path: string): string {
+  const part = (p: string) => {
+    try {
+      const s = statSync(p);
+      return `${s.mtimeMs}:${s.size}`;
+    } catch {
+      return "-"; // no -wal file (checkpointed, or not in WAL mode)
+    }
+  };
+  return `${part(path)}|${part(`${path}-wal`)}`;
+}
 
 function emptyToNull(s: string | null): string | null {
   return s && s.length > 0 ? s : null;
@@ -470,8 +509,8 @@ function loadCoverageRecords(): CoverageRecord[] {
   const path = DB_PATHS.catalog;
   const db = openDb(path); // throws "Database not found" when missing
   try {
-    const mtimeMs = statSync(path).mtimeMs;
-    if (coverageCache && coverageCache.path === path && coverageCache.mtimeMs === mtimeMs) {
+    const version = catalogVersion(path);
+    if (coverageCache && coverageCache.path === path && coverageCache.version === version) {
       return coverageCache.records;
     }
     const rows = db.prepare(`
@@ -515,7 +554,7 @@ function loadCoverageRecords(): CoverageRecord[] {
         },
       });
     }
-    coverageCache = { path, mtimeMs, records };
+    coverageCache = { path, version, records };
     return records;
   } finally {
     db.close();
@@ -699,7 +738,7 @@ git commit -m "feat: add find_passage_resources — owned books covering a passa
 
 **Files:**
 - Modify: `src/types.ts` (`HistoryConfirmation`)
-- Modify: `src/services/study-data.ts` (`isoSeconds`, `waitForHistoryVisit`)
+- Modify: `src/services/study-data.ts` (`snapshotHistory`, `waitForHistoryVisit`)
 - Modify: `src/utils/tool-text.ts` (`openConfirmationText`)
 - Create: `tests/history-confirmation.test.ts`
 - Modify: `tests/tool-text.test.ts`
@@ -709,8 +748,9 @@ git commit -m "feat: add find_passage_resources — owned books covering a passa
 - Consumes: `getReadingHistory`, `HistoryVisit` (PR 2); `uiFollowUpHint` (PR 1); `HISTORY_SCHEMA`, fixture helpers.
 - Produces:
   - `type HistoryConfirmation = { status: "confirmed"; visit: HistoryVisit } | { status: "unconfirmed" } | { status: "unavailable" }`
-  - `isoSeconds(date?: Date): string` — UTC ISO without milliseconds (`"2026-10-15T06:58:20Z"`).
-  - `waitForHistoryVisit(resourceId: string, since: string, options?: { timeoutMs?: number; intervalMs?: number }): Promise<HistoryConfirmation>` — defaults 8000 ms / 500 ms.
+  - `type HistorySnapshot = Map<string, string>` — a resource's history rows, `Id` → `LastVisited`.
+  - `snapshotHistory(resourceId: string): HistorySnapshot | null` — `null` when `history.db` is absent; never throws.
+  - `waitForHistoryVisit(resourceId: string, before: HistorySnapshot | null, options?: { timeoutMs?: number; intervalMs?: number }): Promise<HistoryConfirmation>` — defaults 8000 ms / 500 ms; never throws.
   - `openConfirmationText(confirmation: HistoryConfirmation, what: string, panelType: CaptureToolType, platform?: NodeJS.Platform): string`
 
 - [ ] **Step 1: Write the failing tests**
@@ -728,19 +768,13 @@ import {
   type FixtureDirs,
 } from "./helpers/fixtures.js";
 import { HISTORY_SCHEMA } from "./helpers/schemas.js";
-import { isoSeconds } from "../src/services/study-data.js";
 
 type StudyData = typeof import("../src/services/study-data.js");
 
 const FAST = { timeoutMs: 60, intervalMs: 10 };
 
-describe("isoSeconds", () => {
-  it("drops milliseconds to match History.LastVisited", () => {
-    expect(isoSeconds(new Date("2026-10-15T06:58:20.123Z"))).toBe("2026-10-15T06:58:20Z");
-  });
-});
-
-describe("waitForHistoryVisit with history.db", () => {
+// Tests run in order: later ones add and change rows.
+describe("history confirmation with history.db", () => {
   let dirs: FixtureDirs;
   let studyData: StudyData;
   let historyPath: string;
@@ -748,9 +782,12 @@ describe("waitForHistoryVisit with history.db", () => {
   beforeAll(async () => {
     dirs = makeFixtureDirs();
     historyPath = join(dirs.catalogDir, "HistoryManager", "history.db");
+    // WAL, like Logos's own history.db, so test writes and polling reads
+    // follow the same locking rules as in real use.
     createDb(
       historyPath,
-      `${HISTORY_SCHEMA}
+      `PRAGMA journal_mode = WAL;
+       ${HISTORY_SCHEMA}
        INSERT INTO History (Id, Title, Subtitle, LastVisited, Bookmark) VALUES
          ('h1', 'PNTC Jn', 'John 5:14', '2026-10-15T06:58:20Z', 'Resource|Id=LLS:29.48.20|Reference=bible.64.5.14');`
     );
@@ -759,41 +796,46 @@ describe("waitForHistoryVisit with history.db", () => {
   });
   afterAll(() => cleanupFixtureDirs(dirs));
 
-  it("confirms a visit at or after the launch time", async () => {
-    const r = await studyData.waitForHistoryVisit("LLS:29.48.20", "2026-10-15T06:58:20Z", FAST);
-    expect(r.status).toBe("confirmed");
-    if (r.status === "confirmed") {
-      expect(r.visit).toMatchObject({ title: "PNTC Jn", subtitle: "John 5:14" });
-    }
+  it("snapshots a resource's existing visits", () => {
+    expect(studyData.snapshotHistory("LLS:29.48.20")).toEqual(new Map([["h1", "2026-10-15T06:58:20Z"]]));
+    expect(studyData.snapshotHistory("LLS:LEB")).toEqual(new Map());
   });
 
-  it("does not count visits from before the launch", async () => {
-    expect(await studyData.waitForHistoryVisit("LLS:29.48.20", "2026-10-15T07:00:00Z", FAST)).toEqual({
-      status: "unconfirmed",
-    });
+  it("does not count a visit that was already there, even from the launch second", async () => {
+    const before = studyData.snapshotHistory("LLS:29.48.20");
+    expect(await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST)).toEqual({ status: "unconfirmed" });
   });
 
   it("does not count other resources", async () => {
-    expect(await studyData.waitForHistoryVisit("LLS:LEB", "2026-10-15T00:00:00Z", FAST)).toEqual({
-      status: "unconfirmed",
-    });
+    const before = studyData.snapshotHistory("LLS:LEB");
+    expect(await studyData.waitForHistoryVisit("LLS:LEB", before, FAST)).toEqual({ status: "unconfirmed" });
   });
 
-  it("keeps polling until Logos writes the row", async () => {
-    const since = isoSeconds();
+  it("keeps polling until Logos writes a new row", async () => {
+    const before = studyData.snapshotHistory("LLS:LEB");
     setTimeout(() => {
       createDb(
         historyPath,
         `INSERT INTO History (Id, Title, Subtitle, LastVisited, Bookmark) VALUES
-           ('h2', 'LEB', 'John 5:1', '${isoSeconds()}', 'Resource|Id=LLS:LEB|Reference=bible+leb2.64.5.1');`
+           ('h2', 'LEB', 'John 5:1', '2026-10-15T07:00:00Z', 'Resource|Id=LLS:LEB|Reference=bible+leb2.64.5.1');`
       );
     }, 50);
-    const r = await studyData.waitForHistoryVisit("LLS:LEB", since, { timeoutMs: 3000, intervalMs: 20 });
+    const r = await studyData.waitForHistoryVisit("LLS:LEB", before, { timeoutMs: 3000, intervalMs: 20 });
     expect(r.status).toBe("confirmed");
+    if (r.status === "confirmed") {
+      expect(r.visit).toMatchObject({ id: "h2", title: "LEB", subtitle: "John 5:1" });
+    }
+  });
+
+  it("confirms a re-visit that updates an existing row in place", async () => {
+    const before = studyData.snapshotHistory("LLS:29.48.20");
+    createDb(historyPath, "UPDATE History SET LastVisited = '2026-10-15T07:05:00Z', Subtitle = 'John 5:20' WHERE Id = 'h1';");
+    const r = await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST);
+    expect(r.status === "confirmed" && r.visit.subtitle).toBe("John 5:20");
   });
 });
 
-describe("waitForHistoryVisit without history.db", () => {
+describe("history confirmation without history.db", () => {
   let dirs: FixtureDirs;
   let studyData: StudyData;
 
@@ -804,10 +846,10 @@ describe("waitForHistoryVisit without history.db", () => {
   });
   afterAll(() => cleanupFixtureDirs(dirs));
 
-  it("reports that confirmation is unavailable", async () => {
-    expect(await studyData.waitForHistoryVisit("LLS:LEB", "2026-10-15T00:00:00Z", FAST)).toEqual({
-      status: "unavailable",
-    });
+  it("cannot snapshot, so confirmation is unavailable", async () => {
+    const before = studyData.snapshotHistory("LLS:LEB");
+    expect(before).toBeNull();
+    expect(await studyData.waitForHistoryVisit("LLS:LEB", before, FAST)).toEqual({ status: "unavailable" });
   });
 });
 ```
@@ -850,7 +892,7 @@ describe("openConfirmationText", () => {
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `npx vitest run tests/history-confirmation.test.ts tests/tool-text.test.ts`
-Expected: FAIL — `isoSeconds`, `waitForHistoryVisit`, `openConfirmationText` are not exported.
+Expected: FAIL — `snapshotHistory`, `waitForHistoryVisit`, `openConfirmationText` are not exported.
 
 - [ ] **Step 3: Implement**
 
@@ -869,27 +911,49 @@ export type HistoryConfirmation =
 ```typescript
 // ─── Open confirmation ───────────────────────────────────────────────────────
 
-// UTC ISO timestamp without milliseconds, the format of History.LastVisited
-// ("2026-10-15T06:58:20Z").
-export function isoSeconds(date: Date = new Date()): string {
-  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+/** A resource's history rows before a link is sent: Id -> LastVisited. */
+export type HistorySnapshot = Map<string, string>;
+
+// Taken just before launching a link. Null when history.db is absent (the
+// open then can't be confirmed). Never throws.
+export function snapshotHistory(resourceId: string): HistorySnapshot | null {
+  try {
+    const visits = getReadingHistory({ resourceId });
+    return visits === null ? null : new Map(visits.map((v) => [v.id, v.lastVisited]));
+  } catch {
+    return null;
+  }
 }
 
-// Logos adds a history row when it opens a resource (design doc F12); when
-// it is busy a link can do nothing at all (F20). Poll history.db (read-only)
-// for a visit to `resourceId` at or after `since` until `timeoutMs` passes.
+// Logos records a resource open in history.db (design doc F12); when it is
+// busy a link can do nothing at all (F20). Polls history.db (read-only) until
+// a visit to `resourceId` is new since `before`, or its LastVisited moved on,
+// or `timeoutMs` passes. Comparing with the snapshot, not a launch time,
+// means an earlier visit in the same second (LastVisited has whole-second
+// resolution) never counts. LastVisited is always UTC "Z", so text
+// comparison orders it correctly. Never throws.
 export async function waitForHistoryVisit(
   resourceId: string,
-  since: string,
+  before: HistorySnapshot | null,
   options: { timeoutMs?: number; intervalMs?: number } = {}
 ): Promise<HistoryConfirmation> {
+  if (before === null) return { status: "unavailable" };
   const timeoutMs = options.timeoutMs ?? 8000;
   const intervalMs = options.intervalMs ?? 500;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const visits = getReadingHistory({ resourceId, since, limit: 1 });
-    if (visits === null) return { status: "unavailable" };
-    if (visits.length > 0) return { status: "confirmed", visit: visits[0] };
+    let visits: HistoryVisit[] = [];
+    try {
+      // A failed read while Logos writes (e.g. a transient lock) is "not yet".
+      visits = getReadingHistory({ resourceId }) ?? [];
+    } catch {
+      // retry at the next interval
+    }
+    const fresh = visits.find((v) => {
+      const seen = before.get(v.id);
+      return seen === undefined || v.lastVisited > seen;
+    });
+    if (fresh) return { status: "confirmed", visit: fresh };
     if (Date.now() >= deadline) return { status: "unconfirmed" };
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
@@ -926,7 +990,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Use the confirmation in the handlers**
 
-In `src/index.ts`: extend the study-data import with `isoSeconds, waitForHistoryVisit` and the tool-text import with `openConfirmationText`. Add after `LOGOS_NOT_RUNNING`:
+In `src/index.ts`: extend the study-data import with `snapshotHistory, waitForHistoryVisit` and the tool-text import with `openConfirmationText`. Add after `LOGOS_NOT_RUNNING`:
 
 ```typescript
 // Only resource links are confirmed through history.db. Guides and Factbook
@@ -938,11 +1002,11 @@ const UNCONFIRMABLE_NOTE = "The server does not check whether Logos opened guide
 In block 15 (`open_resource`), replace the handler body after the running check with:
 
 ```typescript
-      const since = isoSeconds();
+      const before = snapshotHistory(resource_id);
       const result = await launchLogosUrl(() => buildResourceUrl(resource_id, reference));
       if (!result.success) return err(`Failed to open resource: ${result.error}`);
       const what = `resource \`${resource_id}\`${reference ? ` at ${reference}` : ""}`;
-      return text(openConfirmationText(await waitForHistoryVisit(resource_id, since), what, "resource"));
+      return text(openConfirmationText(await waitForHistoryVisit(resource_id, before), what, "resource"));
 ```
 
 and append to its description: " Waits up to 8 seconds for Logos to confirm the resource opened and reports what it opened."
@@ -950,15 +1014,15 @@ and append to its description: " Waits up to 8 seconds for Logos to confirm the 
 In block 1 (`navigate_passage`), replace everything after the `bibleId` line with:
 
 ```typescript
-      const since = isoSeconds();
+      // Current links open the passage as a resource, which Logos records.
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(bibleId) : null;
       const result = await launchLogosUrl(() => buildPassageUrl(reference, bibleId));
       if (!result.success) return err(`Failed to open passage: ${result.error}`);
       if (LOGOS_LINK_STYLE === "legacy") {
         return text(`Dispatched to Logos: Bible passage ${reference}. ${DISPATCHED_NOTE}${uiFollowUpHint("bible")}`);
       }
-      // Current links open the passage as a resource, which Logos records.
       const what = `Bible passage ${reference} in \`${bibleId}\``;
-      return text(openConfirmationText(await waitForHistoryVisit(bibleId, since), what, "bible"));
+      return text(openConfirmationText(await waitForHistoryVisit(bibleId, before), what, "bible"));
 ```
 
 and append to its description: " With the current link style, waits up to 8 seconds for Logos to confirm the passage opened and reports what it opened."

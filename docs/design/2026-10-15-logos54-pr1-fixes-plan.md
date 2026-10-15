@@ -19,7 +19,7 @@ Plain-language version: Logos numbers Bible books differently from what the serv
 | Logos book number | Logos's own Bible book index in raw references: OT 1–39, deuterocanon 40–60 (unmapped here), NT 61–87. `bible.64.5.1` = John 5:1. |
 | Raw reference | A Logos reference string, e.g. `bible.66.1.8-66.1.15` (Romans 1:8–15) or `bible+csb2.61-87` (Matthew–Revelation in the CSB). |
 | Facet table | `NoteAnchorFacetReferences` in `notestool.db`: one row per note/highlight anchor holding its raw Bible reference. Present on Logos 54. |
-| Knowledge-base ID | Factbook entry ID: `bk.#Moses` (person), `bk.%Sabbath` (topic), `bk.@Abana` (place), `bk.to:DBT-5333` (preaching theme). |
+| Knowledge-base ID | Factbook entry ID, e.g. `bk.#Moses` (person), `bk.%Sabbath` (topic), `bk.@Abana` (place), `bk.to:DBT-5333` (preaching theme), `bk.$AlabasterFlask` (thing). The server never parses the marker character; it uses the whole ID and the entry's `IconKind`. |
 | Lookup table | `Data/<profile>/AutoComplete/AutoComplete.db`: display names (`Labels`) → knowledge-base IDs (`Terms.Reference`). |
 | Link style | `LOGOS_LINK_STYLE` env setting: `current` (default; formats verified on Logos 54) or `legacy` (today's exact URLs). |
 | Fixture harness | `tests/helpers/fixtures.ts`: builds Logos-shaped SQLite files in a temp dir and re-imports the server modules pointed at them. |
@@ -51,6 +51,7 @@ Recorded here so the reviewer can check them; each is applied in the task named.
 5. **Unused `searchBibleInLogos()` is removed** from `logos-app.ts` (no caller; its link format is one Logos 54 ignores). (Task 9)
 6. **`search_all` with `current` links dispatches nothing** and tells the assistant to ask the user to search, since no working link exists yet (Open Question 1; Task 11 probes it). (Task 9)
 7. **`diagnose` treats version-dependent stores as optional.** The spec says `diagnose` lists new stores automatically, but the CLI fails on any missing file, so a store only some Logos versions have would fail it on every other install. That contradicts the spec's "not available, not an error" rule. `OPTIONAL_DB_NAMES` (`visualMarkup`, absent on Logos 54; `autoComplete`, absent until Logos first runs) are reported as not present without failing. PR 2 adds its stores to the set. (Task 8)
+8. **Name lookup folds case for accented letters too.** The spec says "case-insensitive", but SQLite's `NOCASE` folds only A–Z, and about 16% of real `AutoComplete.db` labels carry accents (adversarial review, 2026-10-15). A miss on a name with non-ASCII letters is retried with a JS case-folding function registered on the read-only connection. That fallback is a full scan, measured at about 40 ms on the real file. Accent-insensitive matching ("Jose" = "José") is not added. (Task 5)
 
 ## Interfaces Produced for PRs 2 and 3
 
@@ -1506,6 +1507,12 @@ describe("knowledge lookup with AutoComplete.db present", () => {
     expect(lookup.lookupKnowledgeIds("Nobody")).toEqual([]);
   });
 
+  it("matches accented names in any case, which SQLite's NOCASE alone misses", () => {
+    // "É" vs "é" is not equal under NOCASE; the Spanish label is "Moisés".
+    expect(lookup.lookupKnowledgeIds("MOISÉS").map((e) => e.id)).toEqual(["bk.#Moses"]);
+    expect(lookup.lookupKnowledgeIds("moisés").map((e) => e.id)).toEqual(["bk.#Moses"]);
+  });
+
   it("resolves a unique name", () => {
     const r = lookup.resolveKnowledgeId("Sabbath");
     expect(r).toEqual({
@@ -1658,13 +1665,15 @@ export function isKnowledgeId(input: string): boolean {
   return input.trim().startsWith("bk.");
 }
 
-// Exact, case-insensitive name match: one entry per ID (Labels has a row per
-// language), primary labels first, English descriptions preferred. Throws
-// when AutoComplete.db is missing — resolveKnowledgeId reports that.
-export function lookupKnowledgeIds(name: string): KnowledgeEntry[] {
-  const db = openDb(DB_PATHS.autoComplete);
-  try {
-    const rows = db.prepare(`
+interface LabelRow {
+  Id: string;
+  Label: string;
+  Kind: string | null;
+  Description: string | null;
+}
+
+function labelQuery(where: string): string {
+  return `
       SELECT t.Reference AS Id, l.LabelText AS Label, k.IconKind AS Kind,
              (SELECT d.Description
                 FROM Descriptions d
@@ -1675,14 +1684,34 @@ export function lookupKnowledgeIds(name: string): KnowledgeEntry[] {
       FROM Labels l
       JOIN Terms t ON t.TermId = l.TermId
       LEFT JOIN IconKinds k ON k.IconKindId = t.IconKindId
-      WHERE l.LabelText = ? COLLATE NOCASE
+      WHERE ${where}
       ORDER BY l.IsPrimary DESC, t.TermId
-    `).all(name.trim()) as Array<{
-      Id: string;
-      Label: string;
-      Kind: string | null;
-      Description: string | null;
-    }>;
+    `;
+}
+
+// Case folding that covers accented letters too ("É" = "é").
+function foldCase(s: string): string {
+  return s.normalize("NFC").toLowerCase();
+}
+
+// Exact, case-insensitive name match: one entry per ID (Labels has a row per
+// language), primary labels first, English descriptions preferred. SQLite's
+// NOCASE folds only A–Z, and about 16% of real labels carry accents, so a
+// name with non-ASCII letters that NOCASE misses is retried with full case
+// folding (a slower scan, only on that path). Throws when AutoComplete.db is
+// missing — resolveKnowledgeId reports that.
+export function lookupKnowledgeIds(name: string): KnowledgeEntry[] {
+  const db = openDb(DB_PATHS.autoComplete);
+  try {
+    const trimmed = name.trim();
+    let rows = db.prepare(labelQuery("l.LabelText = ? COLLATE NOCASE")).all(trimmed) as LabelRow[];
+    if (rows.length === 0 && /[^\x00-\x7F]/.test(trimmed)) {
+      // Registered on this read-only connection only; nothing is written.
+      db.function("fold_case", { deterministic: true }, (s: unknown) =>
+        typeof s === "string" ? foldCase(s) : null
+      );
+      rows = db.prepare(labelQuery("fold_case(l.LabelText) = ?")).all(foldCase(trimmed)) as LabelRow[];
+    }
 
     const seen = new Set<string>();
     const entries: KnowledgeEntry[] = [];

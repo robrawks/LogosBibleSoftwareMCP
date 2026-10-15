@@ -51,6 +51,7 @@ Plain-language version: Logos keeps your reading plans, how far you've read in e
 5. **Server-level tests** (stdio harness) are added; the spec lists only unit tests. (Task 1)
 6. **`diagnose` CLI column width** widens from 14 to 16 so the longer database names line up. (Task 3)
 7. **New stores are optional in `diagnose`**: `readingPlans`, `readingLists`, `readingProgress`, `history` and `passageLists` join PR 1's `OPTIONAL_DB_NAMES`. Each has a fallback or a "not available" reply, so a missing one is not a setup fault. (Tasks 2–5)
+8. **"Latest" compares instants, not text.** `ModifiedDate` columns mix UTC offsets on the real install (`-05:00` and `-04:00` across a daylight-saving change; adversarial review, 2026-10-15), and SQLite compares text lexically. Every ordering by `ModifiedDate` uses `julianday(ModifiedDate)`. `History.LastVisited` is always UTC `Z`, so it stays a text comparison. (Tasks 2, 3, 5)
 
 ## Interfaces Produced for PR 3
 
@@ -486,7 +487,10 @@ const PLAN_ROWS = `
     ('doc-gone', 'Deleted plan', '{}', X'AA', '[]', '2025-01-06T00:00:00Z', 1);
   INSERT INTO ReadingPlanStatus (SyncId, ReadSessions, ModifiedDate, IsDeleted) VALUES
     ('563a3c6bed8046ce95f0540727842b7f', '2', '2026-02-01T15:01:45-05:00', 0),
-    ('d80ae946737141ee9438a1399d19602d', '2', '2025-01-01T00:00:00Z', 0),
+    -- Same plan, two rows. The first sorts later as text ("2025-01-03…") but
+    -- is earlier in time (19:30Z vs 00:47Z next day), so "latest wins" must
+    -- compare instants, not strings (the real store mixes -05:00 and -04:00).
+    ('d80ae946737141ee9438a1399d19602d', '2', '2025-01-03T00:30:00+05:00', 0),
     ('d80ae946737141ee9438a1399d19602d', '0', '2025-01-02T19:47:28-05:00', 0),
     ('ccddeeffaabb88997766554433221100', 'abc', '2025-01-04T00:00:00Z', 0),
     ('0403020106050807090a0b0c0d0e0f10', '5', '2025-01-05T00:00:00Z', 0);
@@ -836,7 +840,7 @@ export function getReadingPlans(today: string = localDate()): ReadingPlan[] | nu
       const statuses = db.prepare(`
         SELECT SyncId, ReadSessions FROM ReadingPlanStatus
         WHERE IsDeleted = 0
-        ORDER BY ModifiedDate
+        ORDER BY julianday(ModifiedDate)
       `).all() as Array<{ SyncId: string; ReadSessions: string | null }>;
       for (const s of statuses) {
         readSessionsBySyncId.set(s.SyncId.toLowerCase(), s.ReadSessions); // latest row wins
@@ -847,7 +851,7 @@ export function getReadingPlans(today: string = localDate()): ReadingPlan[] | nu
       SELECT DocumentId, Title, Settings, ScheduleId, Sessions
       FROM ReadingPlanDocuments
       WHERE IsDeleted = 0
-      ORDER BY ModifiedDate DESC
+      ORDER BY julianday(ModifiedDate) DESC
     `).all() as PlanDocumentRow[];
 
     const plans = docs.map((d) => buildPlan(d, readSessionsBySyncId, today));
@@ -1147,6 +1151,8 @@ const PROGRESS_ROWS = `
     ('LLS:SUMMBBLOT', 0.003177), ('LLS:FNDTNLDOCS', 0.03116), ('LLS:29.48.20', 0.5);
   INSERT INTO ResourceReadingProgress (SyncId, ResourceId, Version, ModifiedDate, IsDeleted) VALUES
     ('s1', 'LLS:SUMMBBLOT', 'v1', '2020-12-31T05:57:16-05:00', 0),
+    -- Sorts after s1 as text but is earlier in time (10:30Z vs 10:57Z).
+    ('s6', 'LLS:SUMMBBLOT', 'v0', '2020-12-31T06:30:00-04:00', 0),
     ('s2', 'LLS:FNDTNLDOCS', 'v1', '2020-12-31T06:09:13-05:00', 0),
     ('s3', 'LLS:29.48.20', 'v1', '2024-01-01T00:00:00Z', 0),
     ('s4', 'LLS:29.48.20', 'v2', '2025-03-01T00:00:00Z', 0),
@@ -1181,6 +1187,11 @@ describe("getResourceReadingProgress with the reading tracker", () => {
       percentRead: 50,
       lastReadDate: "2025-03-01T00:00:00Z",
     });
+  });
+
+  it("picks the last-read date by instant, not by text, when UTC offsets differ", () => {
+    const summary = studyData.getResourceReadingProgress()?.find((e) => e.resourceId === "LLS:SUMMBBLOT");
+    expect(summary?.lastReadDate).toBe("2020-12-31T05:57:16-05:00");
   });
 
   it("sorts by percent read and reports percents with one decimal", () => {
@@ -1295,10 +1306,16 @@ export function getResourceReadingProgress(options: {
   const db = openIfPresent(DB_PATHS.readingProgress, "ReadingStatus");
   if (!db) return null;
   try {
+    // ModifiedDate mixes UTC offsets (-05:00 and -04:00 on the test install),
+    // so "latest" compares instants via julianday(), never the text.
     const lastRead = hasTable(db, "ResourceReadingProgress")
-      ? "(SELECT MAX(p.ModifiedDate) FROM ResourceReadingProgress p WHERE p.ResourceId = s.ResourceId AND p.IsDeleted = 0)"
+      ? `(SELECT p.ModifiedDate FROM ResourceReadingProgress p
+          WHERE p.ResourceId = s.ResourceId AND p.IsDeleted = 0
+          ORDER BY julianday(p.ModifiedDate) DESC LIMIT 1)`
       : "NULL";
-    const order = options.sort === "percent" ? "s.PercentageRead DESC" : "LastRead IS NULL, LastRead DESC";
+    const order = options.sort === "percent"
+      ? "s.PercentageRead DESC"
+      : "LastRead IS NULL, julianday(LastRead) DESC";
     let rows = db.prepare(`
       SELECT s.ResourceId, s.PercentageRead, ${lastRead} AS LastRead
       FROM ReadingStatus s
@@ -2027,7 +2044,7 @@ export function getPassageLists(): PassageList[] | null {
     const rows = db.prepare(`
       SELECT Title, ModifiedDate, CompressedItems FROM PassageLists
       WHERE IsDeleted = 0
-      ORDER BY ModifiedDate DESC
+      ORDER BY julianday(ModifiedDate) DESC
     `).all() as Array<{ Title: string | null; ModifiedDate: string | null; CompressedItems: Buffer | null }>;
     return rows.map((r) => ({
       title: r.Title,
