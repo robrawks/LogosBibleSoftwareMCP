@@ -2949,7 +2949,7 @@ git commit -m "docs: document link style, logos book numbers and current-logos l
 Run: `npm test && npm run build`
 Expected: all tests PASS; `tsc` exits 0.
 
-- [ ] **Step 2: Manual verification on Windows Logos 54 (MANUAL — Will)**
+- [x] **Step 2: Manual verification on Windows Logos 54 (MANUAL — Will)**
 
 Build, then restart the MCP client so it loads `dist/`. With Logos open and idle (workspace showing, not the Today page), confirm and record each result for the PR description:
 
@@ -3019,7 +3019,7 @@ _No divergences recorded._
 ## Resume State
 
 - Last completed task: Task 10: Documentation
-- Commit SHA: aef3812
-- Checkboxes: 67/70 ticked
-- Next task: Task 11, Step 2 (manual verification on Windows Logos 54 — Will), then Step 4 (push + PR, ask Will first) and Step 5 (remove pr-body.md)
-- Known-failing tests / caveats: Tasks 1–10 complete and reviewed; deferred-minors fix commit a0145a5 landed after Task 10 (tests/docs only; 214 tests pass, build clean). Task 11 Steps 1 and 3 ticked; Step 2 needs Will at Windows with Logos 54; no push or PR made. Plan said baseline 134 tests; actual 133.
+- Commit SHA: 6338092
+- Checkboxes: 68/70 ticked
+- Next task: Task 11, Step 4 (push + PR — ask Will first; body drafted in untracked pr-body.md), then Step 5 (remove pr-body.md)
+- Known-failing tests / caveats: Step 2 run 2026-10-15 by Claude via an MCP stdio client against dist/ with Logos open; all 8 checks confirmed through history.db rows. Tab titles not eyeballed, only history titles. Deferred-minors commit a0145a5. 214 tests pass, build clean. Plan said baseline 134; actual 133.
