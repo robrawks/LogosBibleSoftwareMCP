@@ -840,7 +840,7 @@ git commit -m "fix: label bible references with logos book numbers (nt is 61-87,
 - Consumes: nothing.
 - Produces: `decodeLogosBlob(blob: Buffer | null): string | null`; `decodeClippingBlob` kept as an alias (same function object).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Replace lines 1–28 of `tests/clippings-utils.test.ts` (imports, both helpers and the `decodeClippingBlob` block) with:
 
@@ -920,12 +920,12 @@ describe("decodeLogosBlob", () => {
 
 Leave the `describe("extractClippingText", ...)` block unchanged.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/clippings-utils.test.ts`
 Expected: FAIL — `decodeLogosBlob` is not exported, so every case errors.
 
-- [ ] **Step 3: Implement the decoder**
+- [x] **Step 3: Implement the decoder**
 
 Replace lines 1–26 of `src/utils/clippings.ts` with:
 
@@ -972,17 +972,19 @@ export const decodeClippingBlob = decodeLogosBlob;
 
 In `src/services/sqlite-reader.ts`, change the import to `import { decodeLogosBlob, extractClippingText } from "../utils/clippings.js";` and replace the three `decodeClippingBlob(` calls in `getClippings` with `decodeLogosBlob(`.
 
-- [ ] **Step 4: Run the tests and the build**
+- [x] **Step 4: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/utils/clippings.ts src/services/sqlite-reader.ts tests/clippings-utils.test.ts
 git commit -m "fix: skip the full 5-byte header when decoding raw logos blobs"
 ```
+
+> **As built (`534a514`):** matches plan.
 
 ---
 
