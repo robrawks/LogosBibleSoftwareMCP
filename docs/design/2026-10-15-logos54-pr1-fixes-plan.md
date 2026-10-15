@@ -1832,7 +1832,7 @@ git commit -m "feat: resolve factbook and topic-guide names to knowledge-base id
     - `buildSearchAllUrl(query: string, style?): string`
   - Builders throw only when `toLogosUrlRef` cannot parse a reference, or for a `kb` guide target in `legacy` style.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/logos-urls.test.ts`:
 
@@ -1962,12 +1962,12 @@ describe("LOGOS_LINK_STYLE", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/logos-urls.test.ts`
 Expected: FAIL — `logos-urls.js` does not exist.
 
-- [ ] **Step 3: Add the setting and the type**
+- [x] **Step 3: Add the setting and the type**
 
 In `src/config.ts`, replace the "Logos URL Schemes" section (the banner and `LOGOS_URL_BASE`) with:
 
@@ -1997,7 +1997,7 @@ export type GuideTarget =
   | { kind: "kb"; id: string };
 ```
 
-- [ ] **Step 4: Create `src/services/logos-urls.ts`**
+- [x] **Step 4: Create `src/services/logos-urls.ts`**
 
 ```typescript
 import { LOGOS_LINK_STYLE, type LinkStyle } from "../config.js";
@@ -2069,17 +2069,19 @@ export function buildSearchAllUrl(query: string, style: LinkStyle = LOGOS_LINK_S
 }
 ```
 
-- [ ] **Step 5: Run the tests and the build**
+- [x] **Step 5: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0. (`index.ts` still uses the old `logos-app.ts` wrappers; Task 9 switches it.)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/config.ts src/types.ts src/services/logos-urls.ts tests/logos-urls.test.ts
 git commit -m "feat: build logos links in the formats verified on logos 54 — LOGOS_LINK_STYLE=legacy keeps the old urls"
 ```
+
+> **As built (`5705b4b`):** matches plan.
 
 ---
 
