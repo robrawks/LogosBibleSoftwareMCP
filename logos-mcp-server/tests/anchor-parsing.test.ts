@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseAnchorReference,
+  parseAnchorRawReferences,
   parseTagsJson,
 } from "../src/services/sqlite-reader.js";
 
@@ -125,5 +126,19 @@ describe("parseTagsJson", () => {
     expect(parseTagsJson("")).toEqual([]);
     expect(parseTagsJson("not json")).toEqual([]);
     expect(parseTagsJson('{"not":"an array"}')).toEqual([]);
+  });
+});
+
+describe("parseAnchorRawReferences", () => {
+  it("returns every bible raw reference in anchor order", () => {
+    const json =
+      '[{"reference":{"raw":"bible.66.8.28"}},{"textRange":{"resourceId":"LLS:LEB"}},{"reference":{"raw":"bible.44.1.1"}},{"reference":{"raw":"bk.%Grace"}}]';
+    expect(parseAnchorRawReferences(json)).toEqual(["bible.66.8.28", "bible.44.1.1"]);
+  });
+
+  it("returns an empty array for missing or malformed JSON", () => {
+    expect(parseAnchorRawReferences(null)).toEqual([]);
+    expect(parseAnchorRawReferences("not json")).toEqual([]);
+    expect(parseAnchorRawReferences('{"a":1}')).toEqual([]);
   });
 });

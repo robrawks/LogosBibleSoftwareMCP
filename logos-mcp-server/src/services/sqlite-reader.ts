@@ -2,8 +2,9 @@ import { DB_PATHS } from "../config.js";
 import { stripRichText } from "../utils/strip-markup.js";
 import { decodeLogosBlob, extractClippingText } from "../utils/clippings.js";
 import { getResourceTitles } from "./catalog-reader.js";
-import { openDb, escapeLike } from "./db.js";
-import { logosRawToHuman } from "./logos-books.js";
+import type Database from "better-sqlite3";
+import { openDb, escapeLike, hasTable } from "./db.js";
+import { logosRawToHuman, parseLogosBibleRef } from "./logos-books.js";
 import { parseReference, resolveBookName } from "./reference-parser.js";
 import type {
   ClippingResult,
@@ -76,6 +77,8 @@ function queryVisualMarkupHighlights(options: {
       styleName: r.MarkupStyleName,
       syncDate: r.SyncDate,
       resourceTitle: null, // filled in by withResourceTitles below
+      reference: null, // visualmarkup.db stores text ranges, not Bible references
+      rawReferences: [],
     }));
   } finally {
     db.close();
@@ -90,7 +93,7 @@ function getHighlightsFromNotes(options: {
   const db = openDb(DB_PATHS.notes);
   try {
     let sql = `
-      SELECT r.ResourceId, n.AnchorsJson, s.Name AS StyleName, n.ModifiedDate
+      SELECT n.NoteId, r.ResourceId, n.AnchorsJson, s.Name AS StyleName, n.ModifiedDate
       FROM Notes n
       LEFT JOIN NoteStyles s ON n.NoteStyleId = s.NoteStyleId
       LEFT JOIN ResourceIds r ON n.AnchorResourceIdId = r.ResourceIdId
@@ -113,22 +116,72 @@ function getHighlightsFromNotes(options: {
     }
 
     const rows = db.prepare(sql).all(...params) as Array<{
+      NoteId: number;
       ResourceId: string | null;
       AnchorsJson: string | null;
       StyleName: string | null;
       ModifiedDate: string | null;
     }>;
+    const facetRefs = getFacetReferences(db, rows.map((r) => r.NoteId));
 
-    return rows.map((r) => ({
-      resourceId: r.ResourceId ?? "",
-      textRange: r.AnchorsJson ?? "",
-      styleName: r.StyleName ?? "",
-      syncDate: r.ModifiedDate,
-      resourceTitle: null, // filled in by withResourceTitles below
-    }));
+    return rows.map((r) => {
+      const anchors = describeAnchors(facetRefs.get(r.NoteId), r.AnchorsJson);
+      return {
+        resourceId: r.ResourceId ?? "",
+        textRange: r.AnchorsJson ?? "",
+        styleName: r.StyleName ?? "",
+        syncDate: r.ModifiedDate,
+        resourceTitle: null, // filled in by withResourceTitles below
+        reference: anchors.reference,
+        rawReferences: anchors.rawReferences,
+      };
+    });
   } finally {
     db.close();
   }
+}
+
+// Logos 54+ keeps each anchor's Bible reference in NoteAnchorFacetReferences
+// (design doc F2). Returns NoteId -> raw references in anchor order; empty
+// when the table is absent (older installs) or no ids are given.
+function getFacetReferences(db: Database.Database, noteIds: number[]): Map<number, string[]> {
+  const refs = new Map<number, string[]>();
+  if (noteIds.length === 0 || !hasTable(db, "NoteAnchorFacetReferences")) return refs;
+  const CHUNK = 500; // stay well under SQLite's bound-parameter limit
+  for (let i = 0; i < noteIds.length; i += CHUNK) {
+    const chunk = noteIds.slice(i, i + CHUNK);
+    const rows = db
+      .prepare(`
+        SELECT NoteId, Reference FROM NoteAnchorFacetReferences
+        WHERE NoteId IN (${chunk.map(() => "?").join(", ")})
+        ORDER BY NoteId, AnchorIndex, NoteAnchorFacetReferenceId
+      `)
+      .all(...chunk) as Array<{ NoteId: number; Reference: string }>;
+    for (const r of rows) {
+      const list = refs.get(r.NoteId) ?? [];
+      list.push(r.Reference);
+      refs.set(r.NoteId, list);
+    }
+  }
+  return refs;
+}
+
+// Readable and raw Bible references for a note's or highlight's anchors: the
+// facet table first (unmapped books keep their raw string), else AnchorsJson.
+function describeAnchors(
+  facetRefs: string[] | undefined,
+  anchorsJson: string | null
+): { reference: string | null; rawReferences: string[] } {
+  if (facetRefs && facetRefs.length > 0) {
+    return {
+      reference: facetRefs.map((raw) => logosRawToHuman(raw) ?? raw).join("; "),
+      rawReferences: facetRefs,
+    };
+  }
+  return {
+    reference: parseAnchorReference(anchorsJson),
+    rawReferences: parseAnchorRawReferences(anchorsJson),
+  };
 }
 
 // Resolve resource titles lazily and batched: one catalog lookup per distinct
@@ -396,8 +449,10 @@ export interface NoteResult {
   notebookTitle: string | null;
   anchorsJson: string | null;
   tagsJson: string | null;
-  /** Best-effort human-readable Bible reference parsed from anchorsJson (null when not parseable). */
+  /** Readable Bible reference(s) the note is anchored to, "; "-joined (null when none). Facet table first, then AnchorsJson. */
   anchorReference: string | null;
+  /** Raw Logos references behind anchorReference, e.g. "bible.65.9.35". */
+  anchorRawReferences: string[];
   /** Tags parsed from tagsJson (empty array on parse failure). */
   tags: string[];
 }
@@ -433,7 +488,9 @@ export function getUserNotes(options: {
 
     sql += " ORDER BY n.ModifiedDate DESC";
 
-    if (options.limit) {
+    // The passage filter matches readable references after the query, so the
+    // limit must wait for it — otherwise older matching notes are cut first.
+    if (options.limit && !options.passage) {
       sql += " LIMIT ?";
       params.push(options.limit);
     }
@@ -448,23 +505,29 @@ export function getUserNotes(options: {
       AnchorsJson: string | null;
       TagsJson: string | null;
     }>;
+    const facetRefs = getFacetReferences(db, rows.map((r) => r.NoteId));
 
     const notes = rows
-      .map((r) => ({
-        noteId: r.NoteId,
-        externalId: r.ExternalId,
-        content: stripRichText(r.ContentRichText),
-        createdDate: r.CreatedDate,
-        modifiedDate: r.ModifiedDate,
-        notebookTitle: r.NotebookTitle,
-        anchorsJson: r.AnchorsJson,
-        tagsJson: r.TagsJson,
-        anchorReference: parseAnchorReference(r.AnchorsJson),
-        tags: parseTagsJson(r.TagsJson),
-      }))
+      .map((r) => {
+        const anchors = describeAnchors(facetRefs.get(r.NoteId), r.AnchorsJson);
+        return {
+          noteId: r.NoteId,
+          externalId: r.ExternalId,
+          content: stripRichText(r.ContentRichText),
+          createdDate: r.CreatedDate,
+          modifiedDate: r.ModifiedDate,
+          notebookTitle: r.NotebookTitle,
+          anchorsJson: r.AnchorsJson,
+          tagsJson: r.TagsJson,
+          anchorReference: anchors.reference,
+          anchorRawReferences: anchors.rawReferences,
+          tags: parseTagsJson(r.TagsJson),
+        };
+      })
       .filter((n) => n.content !== null);
 
-    return filterNotesByPassage(notes, options.passage);
+    const filtered = filterNotesByPassage(notes, options.passage);
+    return options.limit && options.passage ? filtered.slice(0, options.limit) : filtered;
   } finally {
     db.close();
   }
@@ -505,25 +568,33 @@ function safeParseArray(json: string | null): string[] {
 
 // ─── Anchor / Tag JSON parsing ───────────────────────────────────────────────
 
-// Best-effort human-readable Bible reference from a note's AnchorsJson.
-// Returns null when the JSON is missing/malformed or no bible reference anchor
-// is found. Never throws.
-export function parseAnchorReference(anchorsJson: string | null): string | null {
-  if (!anchorsJson) return null;
+// Raw Bible reference strings ("bible.66.8.28") from a note's AnchorsJson, in
+// anchor order. Empty when the JSON is missing/malformed. Never throws.
+export function parseAnchorRawReferences(anchorsJson: string | null): string[] {
+  if (!anchorsJson) return [];
   let anchors: unknown;
   try {
     anchors = JSON.parse(anchorsJson);
   } catch {
-    return null;
+    return [];
   }
-  if (!Array.isArray(anchors)) return null;
+  if (!Array.isArray(anchors)) return [];
 
+  const raws: string[] = [];
   for (const anchor of anchors) {
     if (typeof anchor !== "object" || anchor === null) continue;
     const reference = (anchor as Record<string, unknown>).reference;
     if (typeof reference !== "object" || reference === null) continue;
     const raw = (reference as Record<string, unknown>).raw;
-    if (typeof raw !== "string") continue;
+    if (typeof raw === "string" && parseLogosBibleRef(raw)) raws.push(raw);
+  }
+  return raws;
+}
+
+// Best-effort human-readable Bible reference from a note's AnchorsJson: the
+// first raw reference whose book is mapped. Null when none. Never throws.
+export function parseAnchorReference(anchorsJson: string | null): string | null {
+  for (const raw of parseAnchorRawReferences(anchorsJson)) {
     const human = logosRawToHuman(raw);
     if (human) return human;
   }

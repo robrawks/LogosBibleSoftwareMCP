@@ -252,7 +252,7 @@ async function main() {
   // ── 7. get_user_highlights ───────────────────────────────────────────────
   server.tool(
     "get_user_highlights",
-    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns the highlight style and the resource title it lives in.",
+    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns each highlight's style, the resource title it lives in, the Bible passage it covers, and its date.",
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       style_name: z.string().optional().describe("Filter by highlight style name"),
@@ -270,7 +270,12 @@ async function main() {
           ? `No highlights matched ${filter}. Try removing the filters to see all highlights.`
           : "No highlights found — the Logos highlights database appears empty.");
       }
-      const lines = highlights.map((h) => `- **${h.styleName}**: ${h.resourceTitle ?? h.resourceId}`);
+      const lines = highlights.map((h) => {
+        const title = h.resourceTitle ?? h.resourceId;
+        const ref = h.reference ? ` — ${h.reference}` : "";
+        const date = h.syncDate ? ` (${h.syncDate.slice(0, 10)})` : "";
+        return `- **${h.styleName}** — ${title}${ref}${date}`;
+      });
       return text(`Found ${highlights.length} highlights:\n\n${lines.join("\n")}`);
     }
   );

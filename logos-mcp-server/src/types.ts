@@ -57,6 +57,10 @@ export interface HighlightResult {
   syncDate: string | null;
   /** Human-readable title of the resource this highlight lives in (best-effort, null when the catalog is unavailable). */
   resourceTitle: string | null;
+  /** Readable Bible reference(s) the highlight covers, "; "-joined (null when unknown). */
+  reference: string | null;
+  /** Raw Logos references behind `reference`, e.g. "bible.66.1.8-66.1.15". */
+  rawReferences: string[];
 }
 
 export interface FavoriteResult {
