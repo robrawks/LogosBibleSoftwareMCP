@@ -1449,7 +1449,7 @@ git commit -m "fix: read note and highlight verses from the logos 54 facet table
   - `resolveKnowledgeId(input: string, options?: { kinds?: string[] }): KnowledgeResolution` (never throws)
   - `resolveGuideTarget(guideType: string, reference: string): GuideTargetResolution` (never throws)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/knowledge-lookup.test.ts`:
 
@@ -1616,12 +1616,12 @@ describe("knowledge lookup without AutoComplete.db", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/knowledge-lookup.test.ts`
 Expected: FAIL — `knowledge-lookup.js` does not exist.
 
-- [ ] **Step 3: Add the database path and types**
+- [x] **Step 3: Add the database path and types**
 
 In `src/config.ts`, add inside `DB_PATHS` after `catalog`:
 
@@ -1656,7 +1656,7 @@ export type GuideTargetResolution =
   | { status: "invalid"; message: string };
 ```
 
-- [ ] **Step 4: Create `src/services/knowledge-lookup.ts`**
+- [x] **Step 4: Create `src/services/knowledge-lookup.ts`**
 
 ```typescript
 import { DB_PATHS } from "../config.js";
@@ -1794,17 +1794,19 @@ export function resolveGuideTarget(guideType: string, reference: string): GuideT
 }
 ```
 
-- [ ] **Step 5: Run the tests and the build**
+- [x] **Step 5: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/config.ts src/types.ts src/services/knowledge-lookup.ts tests/knowledge-lookup.test.ts
 git commit -m "feat: resolve factbook and topic-guide names to knowledge-base ids via AutoComplete.db"
 ```
+
+> **As built (`537b9be`):** matches plan.
 
 ---
 
