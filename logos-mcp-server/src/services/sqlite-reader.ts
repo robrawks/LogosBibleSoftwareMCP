@@ -1,9 +1,8 @@
-import Database from "better-sqlite3";
-import { existsSync } from "fs";
 import { DB_PATHS } from "../config.js";
 import { stripRichText } from "../utils/strip-markup.js";
 import { decodeClippingBlob, extractClippingText } from "../utils/clippings.js";
 import { getResourceTitles } from "./catalog-reader.js";
+import { openDb, escapeLike } from "./db.js";
 import { parseReference, resolveBookName } from "./reference-parser.js";
 import type {
   ClippingResult,
@@ -15,18 +14,6 @@ import type {
   ReadingListItem,
   ReadingProgress,
 } from "../types.js";
-
-function openDb(path: string): Database.Database {
-  if (!existsSync(path)) {
-    throw new Error(`Database not found: ${path}`);
-  }
-  return new Database(path, { readonly: true, fileMustExist: true });
-}
-
-// Escape LIKE wildcards in user input so "%" and "_" match literally.
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, "\\$&");
-}
 
 // ─── Highlights ──────────────────────────────────────────────────────────────
 
