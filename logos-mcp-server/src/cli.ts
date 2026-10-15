@@ -2,7 +2,7 @@
 
 import { existsSync } from "fs";
 import Database from "better-sqlite3";
-import { LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
+import { LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, OPTIONAL_DB_NAMES, BIBLIA_API_KEY } from "./config.js";
 
 let ok = true;
 
@@ -17,9 +17,11 @@ console.log(`  ${existsSync(LOGOS_CATALOG_DIR) ? "OK" : "MISSING"}`);
 console.log("\nDatabases:");
 for (const [name, path] of Object.entries(DB_PATHS)) {
   const found = existsSync(path);
-  if (!found) ok = false;
-  const icon = found ? "✓" : "✗";
-  console.log(`  ${icon} ${name.padEnd(14)} ${path}`);
+  const optional = OPTIONAL_DB_NAMES.has(name);
+  if (!found && !optional) ok = false;
+  const icon = found ? "✓" : optional ? "-" : "✗";
+  const note = !found && optional ? "  (optional: not on every Logos version)" : "";
+  console.log(`  ${icon} ${name.padEnd(14)} ${path}${note}`);
 }
 
 // existsSync alone can't catch an unloadable SQLite driver (e.g. a

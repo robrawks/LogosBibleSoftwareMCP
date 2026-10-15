@@ -5,7 +5,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { existsSync } from "fs";
 import Database from "better-sqlite3";
-import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
+import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, OPTIONAL_DB_NAMES, BIBLIA_API_KEY } from "./config.js";
+import { DISPATCHED_NOTE, uiFollowUpHint, logosStateText, formatKnowledgeChoices } from "./utils/tool-text.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
@@ -510,14 +511,14 @@ async function main() {
   // ── 18. get_logos_state ───────────────────────────────────────────────────
   server.tool(
     "get_logos_state",
-    "Check what Logos Bible Software is currently showing: whether the app is running and the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
+    "Check what Logos Bible Software is currently showing: whether the app is running and, on macOS only, the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
     {},
     async () => {
       const running = await isLogosRunning();
       if (!running) return text("Logos is not running.");
-      const titles = await getLogosWindowTitles();
-      const lines = titles.length > 0 ? titles.map((t) => `- ${t}`) : ["- (no named windows found)"];
-      return text(`Logos is running. Window titles:\n${lines.join("\n")}`);
+      // Window titles need the macOS helper; don't try to build it elsewhere.
+      const titles = process.platform === "darwin" ? await getLogosWindowTitles() : [];
+      return text(logosStateText(titles));
     }
   );
 
@@ -622,7 +623,7 @@ async function main() {
   // ── 23. capture_panel_screenshot ──────────────────────────────────────────
   server.tool(
     "capture_panel_screenshot",
-    "Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
+    "macOS only. Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
     {
       panel_type: z.enum(["bible", "factbook", "wordstudy", "guide", "search", "searchall", "resource"])
         .describe("Type of Logos panel to capture"),
@@ -676,7 +677,7 @@ async function main() {
       lines.push("### Databases\n");
       for (const [name, path] of Object.entries(DB_PATHS)) {
         const found = existsSync(path);
-        const icon = found ? "OK" : "MISSING";
+        const icon = found ? "OK" : OPTIONAL_DB_NAMES.has(name) ? "not present (optional: not on every Logos version)" : "MISSING";
         lines.push(`- **${name}**: ${icon}  \`${path}\``);
       }
 

@@ -133,6 +133,13 @@ export const DB_PATHS = {
   autoComplete: join(LOGOS_CATALOG_DIR, "AutoComplete", "AutoComplete.db"),
 } as const;
 
+// DB_PATHS entries that only some Logos versions (or a Logos that has run at
+// least once) have. diagnose reports them as not present instead of failing;
+// their tools fall back or answer "not available". visualMarkup is absent on
+// Logos 54 (highlights moved to notestool.db); AutoComplete.db is built on
+// first run.
+export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete"]);
+
 // ─── Biblia API ──────────────────────────────────────────────────────────────
 
 export const BIBLIA_API_KEY = process.env.BIBLIA_API_KEY ?? "";
