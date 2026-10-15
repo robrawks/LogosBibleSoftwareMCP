@@ -57,7 +57,7 @@ Plain-language version: Logos keeps your reading plans, how far you've read in e
 
 | Module | Export | Used by PR 3 for |
 |---|---|---|
-| `src/services/study-data.ts` | `getReadingHistory(options: { since?: string; resourceId?: string; limit?: number }): HistoryVisit[] \| null` | confirming `open_resource` via `history.db` |
+| `src/services/study-data.ts` | `getReadingHistory(options: { since?: string; resourceId?: string; limit?: number }): HistoryVisit[] \| null`; module-internal `openIfPresent`, `HistoryRow`, `historyRowToVisit` (PR 3 appends to the same file) | confirming `open_resource` via `history.db` |
 | `src/types.ts` | `HistoryVisit` | same |
 | `src/utils/output.ts` | `resolveLimit(limit, defaultLimit, format)`, `OutputFormat` | `find_passage_resources` |
 | `src/index.ts` | `json(data)` helper, `formatParam` zod schema | `find_passage_resources` |
@@ -1695,6 +1695,28 @@ export function parseHistoryBookmark(bookmark: string): HistoryBookmark {
   };
 }
 
+interface HistoryRow {
+  Id: string;
+  Title: string;
+  Subtitle: string;
+  LastVisited: string;
+  Bookmark: string;
+}
+
+function historyRowToVisit(r: HistoryRow): HistoryVisit {
+  const bookmark = parseHistoryBookmark(r.Bookmark);
+  return {
+    id: r.Id,
+    title: r.Title,
+    subtitle: r.Subtitle || null,
+    lastVisited: r.LastVisited,
+    kind: bookmark.kind,
+    resourceId: bookmark.resourceId,
+    rawReference: bookmark.rawReference,
+    reference: bookmark.rawReference ? logosRawToHuman(bookmark.rawReference) : null,
+  };
+}
+
 // The user's Logos browsing history, newest first. `since` is compared with
 // the stored UTC ISO LastVisited, so a date ("2026-10-01") or a full
 // timestamp both work. Null when history.db is absent.
@@ -1723,26 +1745,8 @@ export function getReadingHistory(options: {
       params.push(options.limit);
     }
 
-    const rows = db.prepare(sql).all(...params) as Array<{
-      Id: string;
-      Title: string;
-      Subtitle: string;
-      LastVisited: string;
-      Bookmark: string;
-    }>;
-    return rows.map((r) => {
-      const bookmark = parseHistoryBookmark(r.Bookmark);
-      return {
-        id: r.Id,
-        title: r.Title,
-        subtitle: r.Subtitle || null,
-        lastVisited: r.LastVisited,
-        kind: bookmark.kind,
-        resourceId: bookmark.resourceId,
-        rawReference: bookmark.rawReference,
-        reference: bookmark.rawReference ? logosRawToHuman(bookmark.rawReference) : null,
-      };
-    });
+    const rows = db.prepare(sql).all(...params) as HistoryRow[];
+    return rows.map(historyRowToVisit);
   } finally {
     db.close();
   }

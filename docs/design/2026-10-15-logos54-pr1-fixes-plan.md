@@ -10,7 +10,7 @@
 
 ## Summary
 
-Plain-language version: Logos numbers Bible books differently from what the server assumed, newer Logos stores the verse a note is attached to in a table the server never read, and most "open this in Logos" links use a format Logos 54 ignores. This plan fixes the book numbering, reads the verse table, rebuilds the links in the formats that were verified to work (keeping the old ones behind a switch), looks up Factbook entries by their internal ID, and makes tools say plainly when something can't work (word-study links, search links, window titles on Windows). The tool count stays at 24.
+Plain-language version: Logos numbers Bible books differently from what the server assumed, newer Logos stores the verse a note is attached to in a table the server never read, and most "open this in Logos" links use a format Logos 54 ignores. This plan fixes the book numbering, reads the verse table, rebuilds the links in the formats that were verified to work (keeping the old ones behind a switch), looks up Factbook entries by their internal ID, and makes tools say plainly when something can't work (word-study links, Sermon Starter themes, window titles on Windows). The tool count stays at 24.
 
 ## Glossary
 
@@ -49,7 +49,7 @@ Recorded here so the reviewer can check them; each is applied in the task named.
 3. **`get_user_notes` applies `limit` after the `passage` filter.** Today the SQL `LIMIT` runs first, so an older matching note is cut before the filter sees it. (Task 4)
 4. **Lookup also reads the tiny `Languages` table** to prefer English descriptions without hard-coding a language ID. (Task 5)
 5. **Unused `searchBibleInLogos()` is removed** from `logos-app.ts` (no caller; its link format is one Logos 54 ignores). (Task 9)
-6. **`search_all` with `current` links dispatches nothing** and tells the assistant to ask the user to search, since no working link exists yet (Open Question 1; Task 11 probes it). (Task 9)
+6. **`search_all` uses `logos4:Search;kind=AllSearch;q=<query>;syntax=v2`**, resolving Open Question 1. Verified on Logos 54 with Logos idle (2026-10-15): it opened an All search with the query run, including multi-word queries. `kind=BooksSearch` also works; `SearchKindName=…;QueryText=…` opens Search without the query. **Sermon Starter Guide ignores its subject** (Open Question 2): every form tried opened it without a theme, and its history row has no subject. (Tasks 6, 9)
 7. **`diagnose` treats version-dependent stores as optional.** The spec says `diagnose` lists new stores automatically, but the CLI fails on any missing file, so a store only some Logos versions have would fail it on every other install. That contradicts the spec's "not available, not an error" rule. `OPTIONAL_DB_NAMES` (`visualMarkup`, absent on Logos 54; `autoComplete`, absent until Logos first runs) are reported as not present without failing. PR 2 adds its stores to the set. (Task 8)
 8. **Name lookup folds case for accented letters too.** The spec says "case-insensitive", but SQLite's `NOCASE` folds only A–Z, and about 16% of real `AutoComplete.db` labels carry accents (adversarial review, 2026-10-15). A miss on a name with non-ASCII letters is retried with a JS case-folding function registered on the read-only connection. That fallback is a full scan, measured at about 40 ms on the real file. Accent-insensitive matching ("Jose" = "José") is not added. (Task 5)
 
@@ -1819,7 +1819,7 @@ git commit -m "feat: resolve factbook and topic-guide names to knowledge-base id
     - `buildGuideUrl(guideTitle: string, target: GuideTarget, style?): string`
     - `buildFactbookUrl(target: string, style?): string` — `target` is a knowledge-base ID (`current`) or a topic name (`legacy`).
     - `buildWordStudyUrl(word: string, style?): string`
-    - `buildSearchAllUrl(query: string, style?): string | null` — `null` = no link form available in this style.
+    - `buildSearchAllUrl(query: string, style?): string`
   - Builders throw only when `toLogosUrlRef` cannot parse a reference, or for a `kb` guide target in `legacy` style.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1916,8 +1916,10 @@ describe("buildWordStudyUrl", () => {
 });
 
 describe("buildSearchAllUrl", () => {
-  it("has no verified link form (current)", () => {
-    expect(buildSearchAllUrl("baptism", "current")).toBeNull();
+  it("opens an All search with the query (current)", () => {
+    expect(buildSearchAllUrl("justification by faith", "current")).toBe(
+      "logos4:Search;kind=AllSearch;q=justification%20by%20faith;syntax=v2"
+    );
   });
 
   it("keeps the old search URL (legacy)", () => {
@@ -2048,11 +2050,12 @@ export function buildWordStudyUrl(word: string, style: LinkStyle = LOGOS_LINK_ST
   return "logos4:Guide;t=Bible%20Word%20Study";
 }
 
-// No link form that opens a search on Logos 54 has been verified (design doc
-// F19, Open Question 1): null tells the caller there is nothing to send.
-export function buildSearchAllUrl(query: string, style: LinkStyle = LOGOS_LINK_STYLE): string | null {
+// Verified on Logos 54 (design doc F19, Open Question 1): opens an All
+// search with the query run. The SearchKindName/QueryText form opened Search
+// without the query.
+export function buildSearchAllUrl(query: string, style: LinkStyle = LOGOS_LINK_STYLE): string {
   if (style === "legacy") return `logos4:///Search?kind=AllSearch&syntax=v2&q=${encodeURIComponent(query)}`;
-  return null;
+  return `logos4:Search;kind=AllSearch;q=${encodeURIComponent(query)};syntax=v2`;
 }
 ```
 
@@ -2647,7 +2650,7 @@ Replace block 16 (`open_guide`) with:
     "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a guide in Logos: a Passage Guide or Exegetical Guide for a Bible passage, or a Topic Guide for a topic. A topic name is looked up in Logos's own index; when it matches several entries nothing opens and the reply lists their IDs — call again with one as reference.",
     {
       guide_type: z.string()
-        .describe("Guide title as shown in Logos: 'Passage Guide', 'Exegetical Guide' or 'Topic Guide' (verified); 'Sermon Starter Guide' opens but may not load its theme (unconfirmed)"),
+        .describe("Guide title as shown in Logos: 'Passage Guide', 'Exegetical Guide' or 'Topic Guide' (verified); 'Sermon Starter Guide' opens without its theme (Logos ignores the subject in the link)"),
       reference: z.string()
         .describe("Bible reference for Passage/Exegetical guides (e.g., 'Romans 12:1'); for Topic Guide a topic name (e.g., 'Sabbath') or knowledge-base ID (e.g., 'bk.%Sabbath')"),
     },
@@ -2686,17 +2689,13 @@ Replace block 17 (`search_all`) with:
   // ── 17. search_all ────────────────────────────────────────────────────────
   server.tool(
     "search_all",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Search across ALL resources in the Logos library (not just Bible text). Current Logos does not accept searches via link: the tool then opens nothing and its reply asks you to have the user run the search. Use for broad research.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Run a search across ALL resources in the Logos library (not just Bible text) in Logos's Search panel. Use for broad research.",
     {
       query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
     },
     async ({ query }) => {
-      const url = buildSearchAllUrl(query);
-      if (url === null) {
-        return text(`Logos does not accept searches via link, so nothing was opened. Ask the user to search for "${query}" in Logos (Search panel, All tab).`);
-      }
       if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
-      const result = await launchLogosUrl(() => url);
+      const result = await launchLogosUrl(() => buildSearchAllUrl(query));
       return result.success
         ? text(`Dispatched to Logos: search for "${query}" across all resources. ${DISPATCHED_NOTE}${uiFollowUpHint("searchall")}`)
         : err(`Failed to open search: ${result.error}`);
@@ -2713,7 +2712,7 @@ Expected: all PASS; `tsc` exits 0. Then `grep -n "logos4:///" src/index.ts src/s
 
 ```bash
 git add src/services/logos-app.ts src/index.ts tests/logos-app.test.ts
-git commit -m "fix: open passages, guides and factbook entries with links logos 54 accepts — honest word study and search messages"
+git commit -m "fix: open passages, guides, factbook entries and searches with links logos 54 accepts — honest word study message"
 ```
 
 ---
@@ -2758,7 +2757,7 @@ In "Navigation & UI", replace the table body rows with:
 In "Search & Discovery", replace the `search_all` row with:
 
 ```markdown
-| `search_all` | Searches across ALL resources in your library (not just Bible text); current Logos can't open searches via link — see [Limitations](#limitations) |
+| `search_all` | Runs a search across ALL resources in your library (not just Bible text) in Logos's Search panel |
 ```
 
 In "Personal Study Data", replace the `get_user_highlights` row with:
@@ -2812,7 +2811,7 @@ Logos 54 ignores the `logos4:///…?…` query-string links older versions accep
 
 | Value | Links sent | Use when |
 |---|---|---|
-| `current` (default) | `logosres:<resource>;ref=…` for passages and resources; `logos4:Guide;t=<title>;ref=…` and `logos4:Factbook;ref=<id>` | Current Logos (verified on Logos 54, Windows) |
+| `current` (default) | `logosres:<resource>;ref=…` for passages and resources; `logos4:Guide;t=<title>;ref=…`, `logos4:Factbook;ref=<id>` and `logos4:Search;kind=AllSearch;q=…;syntax=v2` | Current Logos (verified on Logos 54, Windows) |
 | `legacy` | The `logos4:///Bible/…`, `logos4:///Guide?t=…&ref=…`, `logos4:///Factbook?ref=…` URLs used before | Older Logos versions where the current formats open nothing (reported to work on macOS Logos 48) |
 
 ```json
@@ -2849,8 +2848,7 @@ Insert before "## License":
 ## Limitations
 
 - **Word study links** - Logos 54 opens Bible Word Study but ignores the word in the link. Tried: `logos4:Guide;t=Bible%20Word%20Study;ref=…` with `g:agape`, `q=g:agape`, `lemma.lbs/grc/ἀγάπη` and `en:healing`. `open_word_study` therefore opens it empty and asks the user to type the word (`g:`/`h:` prefixes for Greek/Hebrew).
-- **Sermon Starter Guide** - opens via link, but whether it loads the requested theme is unconfirmed.
-- **Search links** - no link form that opens a search in Logos 54 has been found; with the `current` link style `search_all` asks the assistant to have the user run the search.
+- **Sermon Starter Guide** - opens via link, but without the requested theme: Logos ignores the subject in the link.
 - **Windows** - `get_logos_state` reports only whether Logos is running, and `capture_panel_screenshot` is unavailable (it relies on a macOS helper).
 ```
 
@@ -2877,7 +2875,7 @@ In the Phase 2 table, replace rows 7, 8, 17 and 23 with:
 ```
 
 ```markdown
-| 17 | "Search all resources for 'baptism'" | `search_all` | Returns a message: nothing opened, user should search (legacy link style: success message) |
+| 17 | "Search all resources for 'baptism'" | `search_all` | Returns success message |
 ```
 
 ```markdown
@@ -2900,7 +2898,7 @@ Insert after the Phase 2 table (before "### Testing Rules"):
 In "Testing Rules", replace the "Success message = pass" bullet with:
 
 ```markdown
-- **Success message = pass** — for Logos UI tools (navigate_passage, open_word_study, open_factbook, open_resource, open_guide, search_all), a "success" response is a pass (we can't verify Logos actually opened). An explicit "Logos does not accept … via link" explanation is also a pass for open_word_study and search_all, and a choice list is a pass for an ambiguous Factbook/Topic Guide name.
+- **Success message = pass** — for Logos UI tools (navigate_passage, open_word_study, open_factbook, open_resource, open_guide, search_all), a "success" response is a pass (we can't verify Logos actually opened). An explicit "Logos does not accept … via link" explanation is also a pass for open_word_study, and a choice list is a pass for an ambiguous Factbook/Topic Guide name.
 ```
 
 - [ ] **Step 7: Check the docs**
@@ -2942,34 +2940,16 @@ Build, then restart the MCP client so it loads `dist/`. With Logos open and idle
 5. `open_factbook topic="Moses"` lists `bk.#Moses` and `bk.%Moses_Person`; `open_factbook kb_id="bk.#Moses"` opens Moses.
 6. `open_word_study "agape"` opens an empty Bible Word Study with the honest message.
 7. `get_logos_state` → "Logos is running. Window titles are not available on Windows."
-8. Observation to record: after step 4, check whether `history.db` gained `Guides|…` rows (design doc F12 says guides add none, but rows such as `Guides|Key=BibleReference%7cref%3dbible.64.5.14|TemplateName=ExegeticalGuide` were seen on the test install). Note the answer in the PR; it decides whether PR 3 could also confirm guides later.
+8. `search_all "justification by faith"` opens an All search with the query run.
 
-- [ ] **Step 3: Probe the two open questions (MANUAL — Will, Logos idle)**
+Already observed on the test install (2026-10-15, Logos 54 idle; record in the PR): guides add `Guides|Key=…|TemplateName=<Template>` history rows, Factbook adds `Factbook|ReportId=ref:<kb id>`, and searches add `Search|…|QueryText=…`. Design doc F12 ("guides and Factbook do not") is wrong on Logos 54.
 
-Run each in PowerShell, one at a time, waiting for Logos to settle between them; note what opens:
+- [ ] **Step 3: Open questions (already resolved — nothing to run)**
 
-```powershell
-rundll32 url.dll,FileProtocolHandler "logos4:Search;kind=AllSearch;q=baptism;syntax=v2"
-```
+Both open questions were probed on the test install on 2026-10-15, with Logos 54 idle, by sending each link and reading the new `history.db` row:
 
-```powershell
-rundll32 url.dll,FileProtocolHandler "logos4:Search;kind=BooksSearch;q=baptism"
-```
-
-```powershell
-rundll32 url.dll,FileProtocolHandler "logos4:Search;SearchKindName=AllSearch;QueryText=baptism"
-```
-
-```powershell
-rundll32 url.dll,FileProtocolHandler "logos4:Guide;t=Sermon%20Starter%20Guide;ref=bk.to%3ADBT-5333"
-```
-
-Outcomes:
-
-- **No search form works** → no code change; the honest behavior from Task 9 stands.
-- **A search form works** (a Search panel opens with "baptism" run) → in `buildSearchAllUrl`, make the `current` branch return that exact form with `encodeURIComponent(query)` in place of `baptism` (e.g. `` return `logos4:Search;kind=AllSearch;q=${encodeURIComponent(query)};syntax=v2`; ``); change the `"has no verified link form (current)"` test to expect that string (rename it "opens an All Search (current)"); delete the "Search links" bullet from README Limitations and the `search_all` "can't open searches" text from the README table and the `search_all` description; set tool-tester row 17's criteria back to "Returns success message". Run `npm test && npm run build`, then commit `fix: open all-search with the link form verified on logos 54`.
-- **Sermon Starter loads the "Healing" theme** → in `open_guide`'s `guide_type` description replace "'Sermon Starter Guide' opens but may not load its theme (unconfirmed)" with "'Sermon Starter Guide' (takes a preaching theme name or ID)"; delete the README "Sermon Starter Guide" limitation. Commit `docs: confirm sermon starter guide themes open via link`.
-- **It opens without the theme** → in the `guide_type` description write "'Sermon Starter Guide' opens without its theme"; change the README limitation to "opens via link, but without the requested theme". Commit `docs: note sermon starter guide opens without its theme`.
+- **Search:** `logos4:Search;kind=AllSearch;q=baptism;syntax=v2` opened an All search with "baptism" run (history subtitle "baptism | All"). Multi-word queries work (`q=justification%20by%20faith`). `kind=BooksSearch` also works. `SearchKindName=AllSearch;QueryText=baptism` opened Search with no query. Tasks 6 and 9 already use the working form.
+- **Sermon Starter Guide:** `ref=bk.to%3ADBT-5333`, `ref=bk.to:DBT-5333` and `ref=bk.%25healing` all opened it without a theme (history row `Guides|TemplateName=SermonStarterGuide`, no `Key`, empty subtitle; compare Topic Guide's `Key=Topic|ref=…`). Task 9's `guide_type` description and the README limitation say so.
 
 - [ ] **Step 4: Push and open the PR (ask Will before pushing)**
 
@@ -2991,7 +2971,8 @@ PR 1 of 3 from docs/design/2026-10-15-logos54-fixes-and-study-data-design.md.
 - Logos 54 note/highlight verses read from NoteAnchorFacetReferences (AnchorsJson fallback kept).
 - Links rebuilt in the formats verified on Logos 54; `LOGOS_LINK_STYLE=legacy` keeps the old URLs.
 - Factbook/Topic Guide names resolved to knowledge-base IDs via AutoComplete.db, with disambiguation.
-- Honest messages: word study (word not accepted via link), search_all [result of probe], Windows status.
+- search_all opens an All search via `logos4:Search;kind=AllSearch;q=…;syntax=v2` (verified).
+- Honest messages: word study (word not accepted via link), Sermon Starter (theme not accepted via link), Windows status.
 - 0x02 blob decoder skips the full 5-byte header.
 
 ## Verified on Windows, Logos 54.0.0.252

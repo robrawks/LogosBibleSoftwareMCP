@@ -20,8 +20,9 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 | Open end | A range part without chapter or verse: `bible.64` = all of John; `bible.64.5-64.6` = all of chapters 5–6. |
 | Traits | Catalog column of tab-separated `key:value` entries, e.g. `commentary-purpose:exegetical\tera:contemporary\tauthor-denomination-group:bk.%Baptists`. |
 | Coverage cache | The parsed catalog rows kept in memory until `catalog.db` or its `catalog.db-wal` file changes (modification time or size). |
-| History snapshot | The resource's `history.db` rows (`Id` → `LastVisited`) read just before a link is sent. |
-| History confirmation | A `history.db` row for the resource that is not in the snapshot, or whose `LastVisited` moved on since it. Logos writes one when it opens a resource (design doc F12). |
+| History snapshot | Read just before a link is sent: the `Id`s of the resource's `history.db` rows, and whether Logos is already showing the requested location (the most recently inserted row). |
+| History confirmation | A **new** `history.db` row for the resource, one not in the snapshot. Logos inserts a row when it arrives somewhere and only updates `LastVisited` on the row it leaves (observed on Logos 54, 2026-10-15). |
+| Already showing | Logos was already at the requested resource and location. Sending the link then adds no history row, so it is reported as such, not as "did not confirm". |
 
 ## Global Constraints
 
@@ -44,8 +45,8 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 3. **A chapter-only passage starts at verse 1** for containment (`John 5` ≡ John 5:1), so a commentary whose range begins at 5:1 matches. (Task 1)
 4. **`navigate_passage` also confirms via history** in the `current` link style: it now sends a resource link (PR 1), so the same check applies. (Task 3)
 5. **Multiple authors** (tab-separated in `Records.Authors`) are shown joined with "; ". (Task 2)
-6. **Guide and Factbook replies say the server doesn't check them**, rather than claiming Logos records nothing. F12 found no history row for them, but `Guides|…` rows were seen on the test install (PR 2's history fixtures copy one), and PR 1 Task 11 Step 2 item 8 records which is true. Confirming guides stays out of scope either way. (Task 3)
-7. **Confirmation compares against a snapshot, not the launch time.** The spec says "a row newer than the launch time". `LastVisited` has whole-second resolution, so an earlier visit to the same resource in the same second would count as confirmation (adversarial review, 2026-10-15). The handler snapshots the resource's history rows before launching and waits for a row that is new or whose `LastVisited` changed. That covers both a new row per visit, which is what the test install shows, and an in-place update. (Task 3)
+6. **Guide and Factbook replies say the server doesn't check them**, rather than claiming Logos records nothing. On Logos 54 they do add history rows (observed 2026-10-15: `Guides|Key=…|TemplateName=ExegeticalGuide`, `Factbook|ReportId=ref:bk.#Moses`), contrary to F12. Confirming them is possible but left for a follow-up. (Task 3)
+7. **Confirmation waits for a new row, not a newer timestamp.** The spec said "a row newer than the launch time". `LastVisited` has whole-second resolution, so an earlier visit in the same second would count (adversarial review). Logos also bumps `LastVisited` on the row the user *leaves*, so a changed timestamp means leaving, not opening (observed on Logos 54, 2026-10-15). The handler snapshots the resource's row `Id`s before launching and waits for an `Id` not in the snapshot. Sending the location Logos is already showing adds no row at all (also observed). So the snapshot also records whether the most recently inserted row is the requested resource and location. That case waits only 2 s and reports "already showing" instead of "did not confirm". (Task 3)
 8. **The coverage cache also watches `catalog.db-wal`.** Logos keeps the catalog in WAL mode, so a committed change can sit in the `-wal` file without changing the main file's modification time. The cache key is the modification time and size of both files. `PRAGMA data_version` was considered and rejected: it is only comparable within one connection, and the server opens a new connection per call. (Task 2)
 9. **A failed read while polling counts as "not yet".** A transient lock or open failure while Logos writes `history.db` retries at the next interval rather than ending the poll or throwing out of the handler. (Task 3)
 
@@ -745,12 +746,12 @@ git commit -m "feat: add find_passage_resources — owned books covering a passa
 - Modify: `src/index.ts` (blocks 1, 12, 15, 16)
 
 **Interfaces:**
-- Consumes: `getReadingHistory`, `HistoryVisit` (PR 2); `uiFollowUpHint` (PR 1); `HISTORY_SCHEMA`, fixture helpers.
+- Consumes: `getReadingHistory`, `openIfPresent`, `HistoryRow`, `historyRowToVisit`, `HistoryVisit` (PR 2); `parseLogosBibleRef`, `logosBookNumber` (PR 1); `parseReference` (`reference-parser.ts`); `uiFollowUpHint` (PR 1); `HISTORY_SCHEMA`, fixture helpers.
 - Produces:
-  - `type HistoryConfirmation = { status: "confirmed"; visit: HistoryVisit } | { status: "unconfirmed" } | { status: "unavailable" }`
-  - `type HistorySnapshot = Map<string, string>` — a resource's history rows, `Id` → `LastVisited`.
-  - `snapshotHistory(resourceId: string): HistorySnapshot | null` — `null` when `history.db` is absent; never throws.
-  - `waitForHistoryVisit(resourceId: string, before: HistorySnapshot | null, options?: { timeoutMs?: number; intervalMs?: number }): Promise<HistoryConfirmation>` — defaults 8000 ms / 500 ms; never throws.
+  - `type HistoryConfirmation = { status: "confirmed"; visit: HistoryVisit } | { status: "already_open"; visit: HistoryVisit } | { status: "unconfirmed" } | { status: "unavailable" }`
+  - `interface HistorySnapshot { ids: Set<string>; alreadyShowing: HistoryVisit | null }`
+  - `snapshotHistory(resourceId: string, reference?: string): HistorySnapshot | null` — `null` when `history.db` is absent; never throws.
+  - `waitForHistoryVisit(resourceId: string, before: HistorySnapshot | null, options?: { timeoutMs?: number; intervalMs?: number }): Promise<HistoryConfirmation>` — defaults 8000 ms (2000 ms when already showing) / 500 ms; never throws.
   - `openConfirmationText(confirmation: HistoryConfirmation, what: string, panelType: CaptureToolType, platform?: NodeJS.Platform): string`
 
 - [ ] **Step 1: Write the failing tests**
@@ -796,14 +797,23 @@ describe("history confirmation with history.db", () => {
   });
   afterAll(() => cleanupFixtureDirs(dirs));
 
-  it("snapshots a resource's existing visits", () => {
-    expect(studyData.snapshotHistory("LLS:29.48.20")).toEqual(new Map([["h1", "2026-10-15T06:58:20Z"]]));
-    expect(studyData.snapshotHistory("LLS:LEB")).toEqual(new Map());
+  it("snapshots a resource's existing visits and where Logos is now", () => {
+    const pntc = studyData.snapshotHistory("LLS:29.48.20", "John 5:14");
+    expect(pntc?.ids).toEqual(new Set(["h1"]));
+    expect(pntc?.alreadyShowing?.id).toBe("h1"); // h1 is the newest row and the same location
+    expect(studyData.snapshotHistory("LLS:29.48.20", "John 5:20")?.alreadyShowing).toBeNull();
+    expect(studyData.snapshotHistory("LLS:LEB")).toEqual({ ids: new Set(), alreadyShowing: null });
   });
 
   it("does not count a visit that was already there, even from the launch second", async () => {
-    const before = studyData.snapshotHistory("LLS:29.48.20");
+    const before = studyData.snapshotHistory("LLS:29.48.20", "John 5:20");
     expect(await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST)).toEqual({ status: "unconfirmed" });
+  });
+
+  it("reports a location Logos was already showing, which adds no row", async () => {
+    const before = studyData.snapshotHistory("LLS:29.48.20", "John 5:14");
+    const r = await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST);
+    expect(r.status === "already_open" && r.visit.id).toBe("h1");
   });
 
   it("does not count other resources", async () => {
@@ -812,7 +822,7 @@ describe("history confirmation with history.db", () => {
   });
 
   it("keeps polling until Logos writes a new row", async () => {
-    const before = studyData.snapshotHistory("LLS:LEB");
+    const before = studyData.snapshotHistory("LLS:LEB", "John 5:1");
     setTimeout(() => {
       createDb(
         historyPath,
@@ -827,11 +837,10 @@ describe("history confirmation with history.db", () => {
     }
   });
 
-  it("confirms a re-visit that updates an existing row in place", async () => {
-    const before = studyData.snapshotHistory("LLS:29.48.20");
-    createDb(historyPath, "UPDATE History SET LastVisited = '2026-10-15T07:05:00Z', Subtitle = 'John 5:20' WHERE Id = 'h1';");
-    const r = await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST);
-    expect(r.status === "confirmed" && r.visit.subtitle).toBe("John 5:20");
+  it("ignores an updated row: Logos bumps LastVisited on the row the user leaves", async () => {
+    const before = studyData.snapshotHistory("LLS:29.48.20", "John 5:20");
+    createDb(historyPath, "UPDATE History SET LastVisited = '2026-10-15T07:05:00Z' WHERE Id = 'h1';");
+    expect(await studyData.waitForHistoryVisit("LLS:29.48.20", before, FAST)).toEqual({ status: "unconfirmed" });
   });
 });
 
@@ -875,6 +884,12 @@ describe("openConfirmationText", () => {
     );
   });
 
+  it("says when Logos was already showing the location", () => {
+    expect(openConfirmationText({ status: "already_open", visit }, "resource `LLS:29.48.20`", "resource", "win32")).toBe(
+      "Logos is already showing PNTC Jn at John 5:14. This only opens the Logos UI on the user's screen — no data is returned to you."
+    );
+  });
+
   it("says when Logos did not confirm", () => {
     expect(openConfirmationText({ status: "unconfirmed" }, "resource `LLS:X`", "resource", "win32")).toBe(
       "Sent resource `LLS:X` to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds."
@@ -902,24 +917,71 @@ Expected: FAIL — `snapshotHistory`, `waitForHistoryVisit`, `openConfirmationTe
 /** Whether Logos's history shows that a resource link actually opened. */
 export type HistoryConfirmation =
   | { status: "confirmed"; visit: HistoryVisit }
+  /** Logos was already at that location, so it added no history row. */
+  | { status: "already_open"; visit: HistoryVisit }
   | { status: "unconfirmed" }
   | { status: "unavailable" };
 ```
 
-`src/services/study-data.ts` — add `HistoryConfirmation` to the types import and append:
+`src/services/study-data.ts` — add `HistoryConfirmation` to the types import, `parseLogosBibleRef, logosBookNumber` to the `./logos-books.js` import, `import { parseReference } from "./reference-parser.js";`, and append:
 
 ```typescript
 // ─── Open confirmation ───────────────────────────────────────────────────────
 
-/** A resource's history rows before a link is sent: Id -> LastVisited. */
-export type HistorySnapshot = Map<string, string>;
+/** History state just before a resource link is sent. */
+export interface HistorySnapshot {
+  /** Ids of the resource's existing history rows. */
+  ids: Set<string>;
+  /** Set when Logos is already at the requested location: it then adds no row. */
+  alreadyShowing: HistoryVisit | null;
+}
 
-// Taken just before launching a link. Null when history.db is absent (the
-// open then can't be confirmed). Never throws.
-export function snapshotHistory(resourceId: string): HistorySnapshot | null {
+// Logos inserts a history row when it arrives somewhere and only bumps
+// LastVisited on the row it leaves (observed on Logos 54, 2026-10-15), so the
+// most recently inserted row (highest rowid), not the newest LastVisited, is
+// where Logos is now. Null when history.db is absent or empty.
+function getCurrentHistoryVisit(): HistoryVisit | null {
+  const db = openIfPresent(DB_PATHS.history, "History");
+  if (!db) return null;
+  try {
+    const row = db.prepare(`
+      SELECT Id, Title, Subtitle, LastVisited, Bookmark FROM History
+      WHERE IsDeleted = 0
+      ORDER BY rowid DESC
+      LIMIT 1
+    `).get() as HistoryRow | undefined;
+    return row ? historyRowToVisit(row) : null;
+  } finally {
+    db.close();
+  }
+}
+
+// Whether a visit is `resourceId` at the start of `reference` (any location
+// when no reference is given). Missing chapter/verse count as 1.
+function isSameLocation(visit: HistoryVisit, resourceId: string, reference?: string): boolean {
+  if (visit.kind !== "Resource" || visit.resourceId !== resourceId) return false;
+  if (!reference) return true;
+  const at = visit.rawReference ? parseLogosBibleRef(visit.rawReference)?.start : undefined;
+  if (!at) return false;
+  try {
+    const ref = parseReference(reference);
+    return logosBookNumber(ref.book) === at.book && ref.chapter === (at.chapter ?? 1) && (ref.verse ?? 1) === (at.verse ?? 1);
+  } catch {
+    return false;
+  }
+}
+
+// Taken just before launching a link to `resourceId` (at `reference`). Null
+// when history.db is absent (the open then can't be confirmed). Never throws.
+export function snapshotHistory(resourceId: string, reference?: string): HistorySnapshot | null {
   try {
     const visits = getReadingHistory({ resourceId });
-    return visits === null ? null : new Map(visits.map((v) => [v.id, v.lastVisited]));
+    if (visits === null) return null;
+    const current = getCurrentHistoryVisit();
+    return {
+      ids: new Set(visits.map((v) => v.id)),
+      alreadyShowing: current && isSameLocation(current, resourceId, reference) ? current : null,
+    };
   } catch {
     return null;
   }
@@ -927,18 +989,17 @@ export function snapshotHistory(resourceId: string): HistorySnapshot | null {
 
 // Logos records a resource open in history.db (design doc F12); when it is
 // busy a link can do nothing at all (F20). Polls history.db (read-only) until
-// a visit to `resourceId` is new since `before`, or its LastVisited moved on,
-// or `timeoutMs` passes. Comparing with the snapshot, not a launch time,
-// means an earlier visit in the same second (LastVisited has whole-second
-// resolution) never counts. LastVisited is always UTC "Z", so text
-// comparison orders it correctly. Never throws.
+// a visit to `resourceId` appears that is not in `before`. A changed
+// LastVisited on an existing row is ignored: Logos bumps it on the row the
+// user leaves. If Logos was already at the location it adds no row, so that
+// case waits only briefly and reports "already_open". Never throws.
 export async function waitForHistoryVisit(
   resourceId: string,
   before: HistorySnapshot | null,
   options: { timeoutMs?: number; intervalMs?: number } = {}
 ): Promise<HistoryConfirmation> {
   if (before === null) return { status: "unavailable" };
-  const timeoutMs = options.timeoutMs ?? 8000;
+  const timeoutMs = options.timeoutMs ?? (before.alreadyShowing ? 2000 : 8000);
   const intervalMs = options.intervalMs ?? 500;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -949,12 +1010,13 @@ export async function waitForHistoryVisit(
     } catch {
       // retry at the next interval
     }
-    const fresh = visits.find((v) => {
-      const seen = before.get(v.id);
-      return seen === undefined || v.lastVisited > seen;
-    });
+    const fresh = visits.find((v) => !before.ids.has(v.id));
     if (fresh) return { status: "confirmed", visit: fresh };
-    if (Date.now() >= deadline) return { status: "unconfirmed" };
+    if (Date.now() >= deadline) {
+      return before.alreadyShowing
+        ? { status: "already_open", visit: before.alreadyShowing }
+        : { status: "unconfirmed" };
+    }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
@@ -975,6 +1037,11 @@ export function openConfirmationText(
     const { visit } = confirmation;
     const at = visit.subtitle ? ` at ${visit.subtitle}` : "";
     return `Opened ${visit.title}${at} in Logos. ${DISPATCHED_NOTE}`;
+  }
+  if (confirmation.status === "already_open") {
+    const { visit } = confirmation;
+    const at = visit.subtitle ? ` at ${visit.subtitle}` : "";
+    return `Logos is already showing ${visit.title}${at}. ${DISPATCHED_NOTE}`;
   }
   if (confirmation.status === "unconfirmed") {
     return `Sent ${what} to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds.`;
@@ -1002,7 +1069,7 @@ const UNCONFIRMABLE_NOTE = "The server does not check whether Logos opened guide
 In block 15 (`open_resource`), replace the handler body after the running check with:
 
 ```typescript
-      const before = snapshotHistory(resource_id);
+      const before = snapshotHistory(resource_id, reference);
       const result = await launchLogosUrl(() => buildResourceUrl(resource_id, reference));
       if (!result.success) return err(`Failed to open resource: ${result.error}`);
       const what = `resource \`${resource_id}\`${reference ? ` at ${reference}` : ""}`;
@@ -1015,7 +1082,7 @@ In block 1 (`navigate_passage`), replace everything after the `bibleId` line wit
 
 ```typescript
       // Current links open the passage as a resource, which Logos records.
-      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(bibleId) : null;
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(bibleId, reference) : null;
       const result = await launchLogosUrl(() => buildPassageUrl(reference, bibleId));
       if (!result.success) return err(`Failed to open passage: ${result.error}`);
       if (LOGOS_LINK_STYLE === "legacy") {
@@ -1101,11 +1168,11 @@ and replace the `navigate_passage` and `open_resource` rows (Navigation & UI) wi
 3. Phase 2 — replace rows 6 and 15 and append row 28:
 
 ```markdown
-| 6 | "Open Romans 12:1 in Logos" | `navigate_passage` | Returns "Opened … at …", or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 6 | "Open Romans 12:1 in Logos" | `navigate_passage` | Returns "Opened … at …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 ```
 
 ```markdown
-| 15 | "Open that first commentary at Romans 12:1" | `open_resource` | Returns "Opened … at …", or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 15 | "Open that first commentary at Romans 12:1" | `open_resource` | Returns "Opened … at …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 ```
 
 ```markdown
@@ -1135,7 +1202,7 @@ Restart the MCP client so it loads `dist/`; with Logos open and idle, record for
 
 1. `find_passage_resources passage="John 5:1" kind="commentary"` lists Carson (PNTC Jn) and Phillips (REC Jn).
 2. `open_resource resource_id="LLS:29.48.20" reference="John 5:14"` replies "Opened PNTC Jn at John 5:14 …" and the tab appears.
-3. `navigate_passage "John 5:1"` replies "Opened LEB at John 5:1 …".
+3. `navigate_passage "John 5:1"` replies "Opened LEB at John 5:1 …"; calling it again at once replies "Logos is already showing LEB at John 5:1 …" within about 2 seconds.
 4. Optional: while Logos is busy (e.g. just after launch), `open_resource` replies "Logos did not confirm opening it" within about 8 seconds.
 
 - [ ] **Step 6: Push and open the PR (ask Will before pushing)**
