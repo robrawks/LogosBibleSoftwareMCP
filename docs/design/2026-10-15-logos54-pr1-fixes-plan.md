@@ -2823,8 +2823,6 @@ In "How It Works", replace the "URL schemes" bullet with:
 Insert after the "Logos Data Path" section (before "## Troubleshooting"):
 
 ````markdown
-
-> **As built (`dd83e1d`):** matches plan.
 ## Logos Link Style
 
 Logos 54 ignores the `logos4:///…?…` query-string links older versions accepted, so by default the server sends the link formats verified on Logos 54. Set `LOGOS_LINK_STYLE` in the `env` block of `.mcp.json` to choose:
@@ -2848,7 +2846,7 @@ Factbook entries and Topic Guides are opened by knowledge-base ID (e.g. `bk.#Mos
 Logos numbers Bible books its own way in stored references: Genesis–Malachi are 1–39, the deuterocanon 40–60, and Matthew–Revelation 61–87 (so `bible.66.8.28` is Romans 8:28). Notes and highlights are labeled with that numbering; references in the 40–60 range are shown as the raw Logos string.
 ````
 
-- [ ] **Step 5: README — Troubleshooting and Limitations**
+- [x] **Step 5: README — Troubleshooting and Limitations**
 
 Replace the "Database not found" and "Logos doesn't open passages" entries with:
 
@@ -2872,7 +2870,7 @@ Insert before "## License":
 - **Windows** - `get_logos_state` reports only whether Logos is running, and `capture_panel_screenshot` is unavailable (it relies on a macOS helper).
 ```
 
-- [ ] **Step 6: tool-tester.md**
+- [x] **Step 6: tool-tester.md**
 
 In "Database → Tool Dependencies", replace the table rows with:
 
@@ -2921,17 +2919,19 @@ In "Testing Rules", replace the "Success message = pass" bullet with:
 - **Success message = pass** — for Logos UI tools (navigate_passage, open_word_study, open_factbook, open_resource, open_guide, search_all), a "success" response is a pass (we can't verify Logos actually opened). An explicit "Logos does not accept … via link" explanation is also a pass for open_word_study, and a choice list is a pass for an ambiguous Factbook/Topic Guide name.
 ```
 
-- [ ] **Step 7: Check the docs**
+- [x] **Step 7: Check the docs**
 
 Run: `grep -n "24" ../README.md ../.claude/agents/tool-tester.md`
 Expected: every tool count still reads 24 (no count changes in this PR).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add ../README.md ../.claude/agents/tool-tester.md
 git commit -m "docs: document link style, logos book numbers and current-logos limitations"
 ```
+
+> **As built (`dd83e1d`):** matches plan.
 
 ---
 
@@ -2944,7 +2944,7 @@ git commit -m "docs: document link style, logos book numbers and current-logos l
 - Consumes: everything above.
 - Produces: the PR.
 
-- [ ] **Step 1: Full automated check**
+- [x] **Step 1: Full automated check**
 
 Run: `npm test && npm run build`
 Expected: all tests PASS; `tsc` exits 0.
@@ -2964,7 +2964,7 @@ Build, then restart the MCP client so it loads `dist/`. With Logos open and idle
 
 Already observed on the test install (2026-10-15, Logos 54 idle; record in the PR): guides add `Guides|Key=…|TemplateName=<Template>` history rows, Factbook adds `Factbook|ReportId=ref:<kb id>`, and searches add `Search|…|QueryText=…`. Design doc F12 ("guides and Factbook do not") is wrong on Logos 54.
 
-- [ ] **Step 3: Open questions (already resolved — nothing to run)**
+- [x] **Step 3: Open questions (already resolved — nothing to run)**
 
 Both open questions were probed on the test install on 2026-10-15, with Logos 54 idle, by sending each link and reading the new `history.db` row:
 
@@ -3018,8 +3018,8 @@ _No divergences recorded._
 
 ## Resume State
 
-- **Last completed task:** none (plan written 2026-10-15).
-- **Commit SHA:** plan committed on `docs/logos54-spec`.
-- **Ticked checkboxes:** none.
-- **Next task:** Task 1, Step 0 (create `fix/logos54-compat`).
-- **Caveats:** Task 11 Steps 2–3 need Will at a Windows machine with Logos 54 running; everything before them runs unattended.
+- Last completed task: Task 9: Rewire the UI tools to the new links
+- Commit SHA: a0145a5
+- Checkboxes: 63/70 ticked
+- Next task: Task 11, Step 2 (manual verification on Windows Logos 54 — Will), then Step 4 (push + PR, ask Will first) and Step 5 (remove pr-body.md)
+- Known-failing tests / caveats: Tasks 1–10 complete and reviewed; deferred-minors fix commit a0145a5 landed after Task 10 (tests/docs only; 214 tests pass, build clean). Task 11 Steps 1 and 3 ticked; Step 2 needs Will at Windows with Logos 54; no push or PR made. Plan said baseline 134 tests; actual 133.
