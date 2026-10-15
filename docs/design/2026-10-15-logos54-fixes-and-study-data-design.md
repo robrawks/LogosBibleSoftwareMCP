@@ -43,7 +43,7 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 | F9 | `get_reading_progress` reads the wrong store. | `ReadingLists.db` is empty (0/0); two plans live in `Documents/ReadingPlan/ReadingPlan.db`. |
 | F10 | Unread local study data. | `readingprogressmanager.db` (69 resources with percent read), `history.db` (45 visits with passages), `PassageList.db` (1 list; path already in `DB_PATHS`, no tool). |
 | F11 | The catalog records each resource's Bible coverage and commentary type. | `Records.ReferenceSupersets` (`bible.64.1.1-64.21.25` for Carson's John) and `Traits` (`commentary-purpose:exegetical`, `era:contemporary`, `author-denomination-group:…`). For John 5:1 this yields 15 commentaries + 22 other resources, a superset of the Passage Guide's commentary list. |
-| F12 | Opening a resource adds a `history.db` row; guides and Factbook do not. | Used as the confirmation signal in PR 3. |
+| F12 | Opening a resource adds a `history.db` row; guides and Factbook do not. | Used as the confirmation signal in PR 3. `Guides\|…` history rows were seen once on the test install; PR 1's verification records which is right. |
 | F13 | Reads are safe while Logos runs. | Three rounds of every read tool against the live files with Logos open: no lock errors. The diagnose run did not touch live `-shm`/`-wal` files. |
 | F14 | Profile auto-detection works for non-`.w14` names. | `xmt0sr2y.xit` was found by the relaxed fallback in `config.ts`. |
 | F15 | On Windows, `get_logos_state` can report only running/not running; `capture_panel_screenshot` cannot work. | The window helper is compiled Objective-C (`clang`); `ensureHelper()` fails and is swallowed. |
@@ -86,10 +86,10 @@ Each reader checks for the files, tables and columns it needs (via `sqlite_maste
 | Change | Detection | Fallback |
 |---|---|---|
 | Verses for notes/highlights | `NoteAnchorFacetReferences` exists | Existing `AnchorsJson` parsing |
-| Reading plans | `ReadingPlan.db` exists with `ReadingPlanDocuments` | Existing `ReadingLists.db` path |
-| Highlights store | Existing `visualmarkup.db` → `notestool.db` logic | Unchanged |
-| Reading progress, history, passage lists | File and table exist | Tool returns "not available on this Logos version" (not an error) |
-| Knowledge-base lookup | `AutoComplete.db` exists | Clear error: open Logos once so it builds the lookup table |
+| Reading plans | `ReadingPlan.db` exists with `ReadingPlanDocuments` | Existing `ReadingLists.db` path; `diagnose` reports both stores as optional |
+| Highlights store | Existing `visualmarkup.db` → `notestool.db` logic | Unchanged; `diagnose` reports `visualmarkup.db` as optional (absent on Logos 54) |
+| Reading progress, history, passage lists | File and table exist | Tool returns "not available on this Logos version" (not an error); `diagnose` reports the store as optional, not failed |
+| Knowledge-base lookup | `AutoComplete.db` exists | Clear error: open Logos once so it builds the lookup table; `diagnose` reports the store as optional, not failed |
 
 ### Book numbers: no switch
 
@@ -170,7 +170,7 @@ README: link-style switch, Logos book-number note, limitations (word study, serm
 
 ## PR 2: Study Data
 
-New `DB_PATHS` entries: `readingPlans` = `join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db")`, `readingProgress` = `join(LOGOS_CATALOG_DIR, "ReadingProgressManager", "readingprogressmanager.db")`, `history` = `join(LOGOS_CATALOG_DIR, "HistoryManager", "history.db")`. (`LOGOS_CATALOG_DIR` is the `Data/<id>` directory despite its name.) `passageLists` already exists. `diagnose` lists them automatically.
+New `DB_PATHS` entries: `readingPlans` = `join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db")`, `readingProgress` = `join(LOGOS_CATALOG_DIR, "ReadingProgressManager", "readingprogressmanager.db")`, `history` = `join(LOGOS_CATALOG_DIR, "HistoryManager", "history.db")`. (`LOGOS_CATALOG_DIR` is the `Data/<id>` directory despite its name.) `passageLists` already exists. `diagnose` lists them automatically as optional stores (reported as not present, not as a failure).
 
 ### 2.1 Reading plans — `get_reading_progress`
 
@@ -210,7 +210,7 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 
 ### 3.2 `open_resource` confirms
 
-After launching, poll `history.db` (read-only) for up to 8 s for a row newer than the launch time whose bookmark contains the resource ID. Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guides and Factbook state that they cannot be confirmed.
+After launching, poll `history.db` (read-only) for up to 8 s for a row newer than the launch time whose bookmark contains the resource ID. Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them.
 
 ### 3.3 No batch tool
 
