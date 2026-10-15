@@ -73,7 +73,7 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 |---|---|---|---|
 | 1 | `fix/logos54-compat` | Book numbers, facet-table verses, link formats, knowledge-base lookup, honest word study/search, Windows status honesty, blob decoder fix, compatibility switch, docs | — |
 | 2 | `feature/study-data` | Reading plans (fixing `get_reading_progress`), `get_resource_reading_progress`, `get_reading_history`, `get_passage_lists`, `format: "json"` | PR 1 |
-| 3 | `feature/passage-resources` | `find_passage_resources`, history confirmation in `open_resource` | PR 1, PR 2 (`format`/`json()` helper, history reader) |
+| 3 | `feature/passage-resources` | `find_passage_resources`, history confirmation of resource, guide, Factbook and search opens | PR 1, PR 2 (`format`/`json()` helper, history reader) |
 
 Each PR is independently reviewable, passes `npm test` and `npm run build`, updates the tool count everywhere it appears, and states in its description what was verified on Windows Logos 54 and what needs macOS confirmation.
 
@@ -97,7 +97,7 @@ The 1–66 table was wrong for any version, because the numbers come from Logos'
 
 ### Links: an explicit switch
 
-Whether Logos accepted a link cannot be detected for guides and Factbook (F12), and the old `logos4:///Bible/…` form reportedly worked on macOS Logos 48 (`docs/research/screenshot-approach.md`). Therefore:
+Whether Logos accepts the legacy links was not probed, and the old `logos4:///Bible/…` form reportedly worked on macOS Logos 48 (`docs/research/screenshot-approach.md`). Therefore:
 
 - New setting `LOGOS_LINK_STYLE`, read in `config.ts`: `current` (default, the formats in F5/F6 and resource links) or `legacy` (today's URLs, unchanged).
 - The README explains when to use `legacy`. If the maintainer confirms the new formats on macOS, the README can describe `legacy` as a fallback only.
@@ -208,9 +208,9 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 - Parsed ranges are cached per process, keyed by the modification time and size of `catalog.db` and `catalog.db-wal` (Logos writes the catalog in WAL mode, so a change can sit in the `-wal` file without touching the main file).
 - README notes that the order differs from the user's Passage Guide prioritization list, which is not stored locally (F18).
 
-### 3.2 `open_resource` confirms
+### 3.2 Opens are confirmed
 
-Before launching, snapshot the `Id`s of the resource's `history.db` rows, and note whether the most recently inserted row (highest rowid: where Logos is now) is already that resource at the requested location. After launching, poll `history.db` (read-only) for up to 8 s for a **new** row for that resource, one whose `Id` is not in the snapshot. A changed `LastVisited` on an existing row doesn't count: Logos bumps it on the row the user leaves (F12). A launch timestamp is not used either: `LastVisited` has whole-second resolution, so an earlier visit in the same second would count. A failed read while polling counts as "not yet". Report "Opened <abbrev> at <Subtitle>". If Logos was already showing the location, it adds no row (F12): wait only 2 s and report "Logos is already showing <abbrev> at <Subtitle>". Otherwise report "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them; they do add history rows (F12), so confirming them is a possible follow-up.
+`open_resource`, `navigate_passage`, `open_guide`, `open_factbook` and `search_all` confirm through `history.db`, since Logos adds a row for each kind (F12). Each call names a target: a resource (and passage), a guide (template and subject), a Factbook entry (knowledge-base ID) or a search (query and kind). Before launching, snapshot the `Id`s of the target's rows, and note whether the most recently inserted row (highest rowid: where Logos is now) is already the target at the requested location. After launching, poll `history.db` (read-only) for up to 8 s for a **new** row for the target, one whose `Id` is not in the snapshot. A new row only has to be the same kind of thing (resource ID, guide template, any Factbook entry, search kind); "already showing" also needs the location (passage, guide subject, knowledge-base ID, query), so a field Logos stores differently costs only the "already showing" reply. A changed `LastVisited` on an existing row doesn't count: Logos bumps it on the row the user leaves (F12). A launch timestamp is not used either: `LastVisited` has whole-second resolution, so an earlier visit in the same second would count. A failed read while polling counts as "not yet". Report "Opened <Title> at <Subtitle>" for a resource, "Opened <Title> (<Subtitle>)" otherwise. If Logos was already showing the location, it adds no row (F12): wait only 2 s and report "Logos is already showing …". Otherwise report "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, or the link is in the legacy style (not probed), keep today's message.
 
 ### 3.3 No batch tool
 
@@ -260,7 +260,7 @@ Derived from the code at `6d4a414`, its tests, `docs/design/`, and commit histor
 **Manual verification on Windows Logos 54 (recorded in each PR description)**
 - PR 1: a Romans note/highlight labeled Romans; `get_user_notes passage="Acts 9"` returns the Acts 9:35 note; `navigate_passage "John 5:1"` adds a history row; Passage/Exegetical/Topic guides open (tab titles); `open_factbook "Moses"` disambiguates, `kb_id="bk.#Moses"` opens; word study message is honest; `search_all` runs an All search.
 - PR 2: reading plans' next readings match Logos's Today page (CSB → Rev 22, 40 Questions → pp 9–13 on the test install); per-book progress matches the resource's progress indicator; history matches the History panel.
-- PR 3: `find_passage_resources "John 5:1" kind=commentary` lists Carson (PNTC Jn) and Phillips (REC Jn); `open_resource` confirms via history; re-sending the location Logos already shows reports "already showing".
+- PR 3: `find_passage_resources "John 5:1" kind=commentary` lists Carson (PNTC Jn) and Phillips (REC Jn); `open_resource`, `open_guide`, `open_factbook` and `search_all` confirm via history; re-sending the location Logos already shows reports "already showing".
 
 **Requested of the maintainer on macOS**
 - New link formats with `LOGOS_LINK_STYLE=current`; one NT note label; database paths for reading plans, progress and history.
