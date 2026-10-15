@@ -3018,8 +3018,8 @@ _No divergences recorded._
 
 ## Resume State
 
-- Last completed task: Task 9: Rewire the UI tools to the new links
-- Commit SHA: a0145a5
-- Checkboxes: 63/70 ticked
+- Last completed task: Task 10: Documentation
+- Commit SHA: aef3812
+- Checkboxes: 67/70 ticked
 - Next task: Task 11, Step 2 (manual verification on Windows Logos 54 — Will), then Step 4 (push + PR, ask Will first) and Step 5 (remove pr-body.md)
 - Known-failing tests / caveats: Tasks 1–10 complete and reviewed; deferred-minors fix commit a0145a5 landed after Task 10 (tests/docs only; 214 tests pass, build clean). Task 11 Steps 1 and 3 ticked; Step 2 needs Will at Windows with Logos 54; no push or PR made. Plan said baseline 134 tests; actual 133.
