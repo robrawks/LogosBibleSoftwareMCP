@@ -2412,7 +2412,7 @@ git commit -m "fix: report honest logos status on windows — no window titles o
 - Consumes: `buildPassageUrl`, `buildResourceUrl`, `buildGuideUrl`, `buildFactbookUrl`, `buildWordStudyUrl`, `buildSearchAllUrl` (Task 6); `LOGOS_LINK_STYLE`, `DEFAULT_BIBLE_RESOURCE_ID` (Task 6); `resolveKnowledgeId`, `resolveGuideTarget` (Task 5); `getPreferredBibleResourceId` (Task 7); `uiFollowUpHint`, `formatKnowledgeChoices` (Task 8); `GuideTarget`, `GuideTargetResolution` (Tasks 5–6).
 - Produces: `launchLogosUrl(build: () => string): Promise<LogosCommandResult>` and `isLogosRunning(): Promise<boolean>` are the only exports of `logos-app.ts`. New tool parameters: `navigate_passage.bible_resource_id` (optional), `open_factbook.kb_id` (optional; `topic` becomes optional).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/logos-app.test.ts`:
 
@@ -2430,12 +2430,12 @@ describe("launchLogosUrl", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run tests/logos-app.test.ts`
 Expected: FAIL — `launchLogosUrl` is not exported.
 
-- [ ] **Step 3: Rewrite `src/services/logos-app.ts`**
+- [x] **Step 3: Rewrite `src/services/logos-app.ts`**
 
 ```typescript
 import { execFile } from "child_process";
@@ -2499,7 +2499,7 @@ export async function isLogosRunning(): Promise<boolean> {
 
 (`navigateToPassage`, `searchBibleInLogos`, `openWordStudy`, `openFactbook`, `openResource`, `openGuide`, `searchAll` are gone; `searchBibleInLogos` had no caller.)
 
-- [ ] **Step 4: Update `src/index.ts` imports and shared text**
+- [x] **Step 4: Update `src/index.ts` imports and shared text**
 
 Replace the config and `logos-app` import lines, and the `catalog-reader` import, with:
 
@@ -2549,7 +2549,7 @@ const LOGOS_NOT_RUNNING =
 
 (`DISPATCHED_NOTE` comes from `tool-text.ts`, imported in Task 8.)
 
-- [ ] **Step 5: Replace the six UI tool registrations**
+- [x] **Step 5: Replace the six UI tool registrations**
 
 Replace block 1 (`navigate_passage`) with:
 
@@ -2719,17 +2719,19 @@ Replace block 17 (`search_all`) with:
   );
 ```
 
-- [ ] **Step 6: Run the tests and the build**
+- [x] **Step 6: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0. Then `grep -n "logos4:///" src/index.ts src/services/logos-app.ts` → no output (the only remaining `logos4:///` strings are in `logos-urls.ts` legacy branches and `screenshot-capture.ts`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/services/logos-app.ts src/index.ts tests/logos-app.test.ts
 git commit -m "fix: open passages, guides, factbook entries and searches with links logos 54 accepts — honest word study message"
 ```
+
+> **As built (`edaee44`):** matches plan.
 
 ---
 
