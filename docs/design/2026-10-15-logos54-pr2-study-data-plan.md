@@ -27,12 +27,13 @@ Plain-language version: Logos keeps your reading plans, how far you've read in e
 
 ## Global Constraints
 
-- **Depends on PR 1** (`fix/logos54-compat`). Uses its `openDb`/`escapeLike`/`hasTable` (`src/services/db.ts`), `logosRawToHuman` (`src/services/logos-books.ts`), `decodeLogosBlob` (`src/utils/clippings.ts`), `getResourceTitles`/`resolveTypeFilter`/`typeLabel` (`src/services/catalog-reader.ts`), and the test helpers `makeFixtureDirs`/`createDb`/`useFixtureDirs`/`cleanupFixtureDirs` (`tests/helpers/fixtures.ts`) and `NOTES_SCHEMA_LOGOS54`/`CATALOG_SCHEMA` (`tests/helpers/schemas.ts`).
+- **Depends on PR 1** (`fix/logos54-compat`). Uses its `openDb`/`escapeLike`/`hasTable` (`src/services/db.ts`), `logosRawToHuman` (`src/services/logos-books.ts`), `decodeLogosBlob` (`src/utils/clippings.ts`), `OPTIONAL_DB_NAMES` (`src/config.ts`), and the test helpers `makeFixtureDirs`/`createDb`/`useFixtureDirs`/`cleanupFixtureDirs` (`tests/helpers/fixtures.ts`) and `NOTES_SCHEMA_LOGOS54`/`CATALOG_SCHEMA` (`tests/helpers/schemas.ts`). Also uses the existing `getResourceTitles`/`resolveTypeFilter`/`typeLabel` (`src/services/catalog-reader.ts`).
 - All paths below are relative to `logos-mcp-server/`; run every command from that directory.
-- Branch: `feature/study-data`. Conventional commits with lower-case summaries.
-- TypeScript `strict`, ES modules, `.js` suffix on relative imports; 2-space indent, double quotes, semicolons, trailing commas.
-- Every database is opened read-only via `openDb`, per call, closed in `finally`. Parameterized SQL only (the only interpolated SQL fragments are fixed strings chosen in code). `LIKE` uses `escapeLike()` with `ESCAPE '\\'`.
-- Detect stores by file and table (`hasTable`), never by Logos version. A missing store is "not available on this Logos version" (plain text, not an error).
+- Branch: `feature/study-data`. Conventional commits with lower-case summaries (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+- TypeScript `strict`, ES modules, `.js` suffix on relative imports; 2-space indent, double quotes, semicolons, trailing commas. No linter exists — match the surrounding code.
+- Every database is opened read-only via `openDb`, per call, closed in `finally`. Never write to any Logos file. Parameterized SQL only (the only interpolated SQL fragments are fixed strings chosen in code). `LIKE` uses `escapeLike()` with `ESCAPE '\\'`.
+- Detect stores by file and table (`hasTable`), never by Logos version. A missing store is "not available on this Logos version" (plain text, not an error). Each new store's `DB_PATHS` key joins `OPTIONAL_DB_NAMES`, so `diagnose` doesn't fail on installs without it (PR 1 deviation 7).
+- Do **not** modify `src/services/screenshot-capture.ts` or the Biblia tools (design non-goals).
 - Best-effort parsers never throw; they return `null` / `[]`.
 - No `.db` files committed; fixtures built in a temp dir at test time with column names copied from the Logos 54 install (2026-10-15) and synthetic rows.
 - Services return typed objects; handlers only format. Text output stays free of internal noise (no raw offsets/ranges, no use counts).
@@ -49,6 +50,7 @@ Plain-language version: Logos keeps your reading plans, how far you've read in e
 4. **Plan objects carry the parsed `Settings` JSON** (`settings`) so JSON consumers get range and frequency without the server modelling every field. Full session lists are not returned (CSB plan: 261 sessions); `nextReading` is. (Task 2)
 5. **Server-level tests** (stdio harness) are added; the spec lists only unit tests. (Task 1)
 6. **`diagnose` CLI column width** widens from 14 to 16 so the longer database names line up. (Task 3)
+7. **New stores are optional in `diagnose`**: `readingPlans`, `readingLists`, `readingProgress`, `history` and `passageLists` join PR 1's `OPTIONAL_DB_NAMES`. Each has a fallback or a "not available" reply, so a missing one is not a setup fault. (Tasks 2–5)
 
 ## Interfaces Produced for PR 3
 
@@ -67,7 +69,7 @@ Plain-language version: Logos keeps your reading plans, how far you've read in e
 |---|---|---|
 | `src/services/study-data.ts` | Create | Readers for reading plans, reading tracker, history, passage lists; GUID and reference helpers |
 | `src/utils/output.ts` | Create | `OutputFormat`, `MAX_JSON_LIMIT`, `resolveLimit`, `toJsonText` |
-| `src/config.ts` | Modify | `DB_PATHS.readingPlans`, `.readingProgress`, `.history` |
+| `src/config.ts` | Modify | `DB_PATHS.readingPlans`, `.readingProgress`, `.history`; new stores join `OPTIONAL_DB_NAMES` |
 | `src/types.ts` | Modify | "Study Data Types" section |
 | `src/services/catalog-reader.ts` | Modify | `getResourceIdsOfType()` |
 | `src/index.ts` | Modify | `json()`, `formatParam`, reading-progress rewrite, three new tools, `format` on existing read tools |
@@ -292,6 +294,12 @@ describe("server smoke test", () => {
   it("filters notes by a passage stored in the facet table", async () => {
     const { text } = await callTool(client, "get_user_notes", { passage: "Acts 9" });
     expect(text).toContain("anchored to Acts 9:35");
+  });
+
+  it("reports optional stores as not present and required ones as missing", async () => {
+    const { text } = await callTool(client, "diagnose");
+    expect(text).toContain("- **autoComplete**: not present (optional");
+    expect(text).toContain("- **favorites**: MISSING");
   });
 });
 ```
@@ -593,6 +601,8 @@ In `src/config.ts`, add to `DB_PATHS` after `passageLists`:
 ```typescript
   readingPlans: join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db"),
 ```
+
+and add `"readingPlans", "readingLists"` to `OPTIONAL_DB_NAMES` (either store is enough for `get_reading_progress`).
 
 In `src/types.ts`, add after the `ClippingResult` interface:
 
@@ -1070,7 +1080,7 @@ git commit -m "fix: read reading plans from ReadingPlan.db — next reading and 
 
 **Files:**
 - Modify: `src/config.ts` (`DB_PATHS.readingProgress`)
-- Modify: `src/cli.ts:22` (column width)
+- Modify: `src/cli.ts` (column width in the database loop PR 1 rewrote)
 - Modify: `src/types.ts` (`ResourceReadingProgressEntry`)
 - Modify: `src/services/catalog-reader.ts` (`getResourceIdsOfType`)
 - Modify: `src/services/study-data.ts` (append reader)
@@ -1220,7 +1230,9 @@ Expected: FAIL — `getResourceReadingProgress is not a function`.
   readingProgress: join(LOGOS_CATALOG_DIR, "ReadingProgressManager", "readingprogressmanager.db"),
 ```
 
-`src/cli.ts` line 22 — change `name.padEnd(14)` to `name.padEnd(16)`.
+and add `"readingProgress"` to `OPTIONAL_DB_NAMES`.
+
+`src/cli.ts` — in the database loop, change `name.padEnd(14)` to `name.padEnd(16)`.
 
 `src/types.ts` — append to "Study Data Types":
 
@@ -1615,6 +1627,8 @@ Expected: FAIL — `parseHistoryBookmark` is not exported.
   history: join(LOGOS_CATALOG_DIR, "HistoryManager", "history.db"),
 ```
 
+and add `"history"` to `OPTIONAL_DB_NAMES`.
+
 `src/types.ts` — append to "Study Data Types":
 
 ```typescript
@@ -1823,6 +1837,7 @@ git commit -m "feat: add get_reading_history from logos's history.db"
 ### Task 5: `get_passage_lists`
 
 **Files:**
+- Modify: `src/config.ts` (`OPTIONAL_DB_NAMES` gains `passageLists`)
 - Modify: `src/types.ts` (`PassageListEntry`, `PassageList`)
 - Modify: `src/services/study-data.ts` (append)
 - Modify: `tests/helpers/schemas.ts` (`PASSAGE_LIST_SCHEMA`)
@@ -1955,6 +1970,8 @@ Run: `npx vitest run tests/passage-lists.test.ts`
 Expected: FAIL — `parsePassageItems` is not exported.
 
 - [ ] **Step 4: Implement**
+
+`src/config.ts` — add `"passageLists"` to `OPTIONAL_DB_NAMES` (the path already exists; older installs may not have the file).
 
 `src/types.ts` — append to "Study Data Types":
 
@@ -2104,7 +2121,7 @@ Expected: all PASS; `tsc` exits 0.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/types.ts src/services/study-data.ts src/index.ts tests/helpers/schemas.ts tests/passage-lists.test.ts tests/server-study-tools.test.ts tests/server-smoke.test.ts
+git add src/config.ts src/types.ts src/services/study-data.ts src/index.ts tests/helpers/schemas.ts tests/passage-lists.test.ts tests/server-study-tools.test.ts tests/server-smoke.test.ts
 git commit -m "feat: add get_passage_lists"
 ```
 
@@ -2425,10 +2442,16 @@ Restart the MCP client so it loads `dist/`, then record for the PR:
 git push -u origin feature/study-data
 ```
 
-Base is `main` if PR 1 has merged, else `fix/logos54-compat`:
+If PR 1 has merged:
 
 ```bash
 gh pr create --repo robrawks/LogosBibleSoftwareMCP --base main --title "feat: reading plans, reading progress, history, passage lists and json output" --body-file pr-body.md
+```
+
+Otherwise (stacked on PR 1):
+
+```bash
+gh pr create --repo robrawks/LogosBibleSoftwareMCP --base fix/logos54-compat --title "feat: reading plans, reading progress, history, passage lists and json output" --body-file pr-body.md
 ```
 
 `pr-body.md` (not committed):

@@ -26,9 +26,10 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 
 - **Depends on PR 1 and PR 2.** PR 2 supplies `json()`/`formatParam` (`src/index.ts`), `resolveLimit` (`src/utils/output.ts`), `getReadingHistory`/`HistoryVisit` (`src/services/study-data.ts`, `src/types.ts`), and the test helpers `startServer`/`callTool` (`tests/helpers/server.ts`) and `HISTORY_SCHEMA` (`tests/helpers/schemas.ts`). PR 1 supplies `parseLogosBibleRef`, `logosBookNumber`, `LogosBibleRange`, `LogosRefPoint` (`src/services/logos-books.ts`), `buildResourceUrl`/`buildPassageUrl`, `launchLogosUrl`, `DISPATCHED_NOTE`/`uiFollowUpHint` (`src/utils/tool-text.ts`), `LOGOS_NOT_RUNNING` (`src/index.ts`), and the fixture helpers and `CATALOG_SCHEMA`.
 - All paths below are relative to `logos-mcp-server/`; run every command from that directory.
-- Branch: `feature/passage-resources`. Conventional commits with lower-case summaries.
-- TypeScript `strict`, ES modules, `.js` suffix on relative imports; 2-space indent, double quotes, semicolons, trailing commas.
-- Every database read-only via `openDb`, per call, closed in `finally`; parameterized SQL only. `history.db` is only ever read.
+- Branch: `feature/passage-resources`. Conventional commits with lower-case summaries (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+- TypeScript `strict`, ES modules, `.js` suffix on relative imports; 2-space indent, double quotes, semicolons, trailing commas. No linter exists — match the surrounding code.
+- Every database read-only via `openDb`, per call, closed in `finally`; parameterized SQL only. Never write to any Logos file; `history.db` is only ever read.
+- Do **not** modify `src/services/screenshot-capture.ts` or the Biblia tools (design non-goals).
 - Best-effort parsers never throw.
 - No `.db` files committed; fixtures built in a temp dir (column names from the Logos 54 install, synthetic rows).
 - `UseCount` is used for sorting only: it appears in JSON, never in text (response-cleanup rule).
@@ -42,6 +43,7 @@ Plain-language version: Logos's catalog already says which Bible chapters each o
 3. **A chapter-only passage starts at verse 1** for containment (`John 5` ≡ John 5:1), so a commentary whose range begins at 5:1 matches. (Task 1)
 4. **`navigate_passage` also confirms via history** in the `current` link style: it now sends a resource link (PR 1), so the same check applies. (Task 3)
 5. **Multiple authors** (tab-separated in `Records.Authors`) are shown joined with "; ". (Task 2)
+6. **Guide and Factbook replies say the server doesn't check them**, rather than claiming Logos records nothing. F12 found no history row for them, but `Guides|…` rows were seen on the test install (PR 2's history fixtures copy one), and PR 1 Task 11 Step 2 item 8 records which is true. Confirming guides stays out of scope either way. (Task 3)
 
 ## File Structure
 
@@ -262,10 +264,11 @@ git commit -m "feat: parse catalog bible coverage ranges and resource traits"
 - Create: `tests/passage-resources.test.ts`
 - Create: `tests/server-passage-resources.test.ts`
 - Modify: `tests/server-smoke.test.ts` (count 28)
+- Modify: `tests/server-json.test.ts` (`READ_TOOLS` gains the new tool)
 - Modify: `src/index.ts` (block 28)
 
 **Interfaces:**
-- Consumes: Task 1; `logosBookNumber` (PR 1); `parseReference` (`reference-parser.ts`); `resolveTypeFilter`, `typeLabel`, `openDb` (existing); `json`, `formatParam`, `resolveLimit` (PR 2).
+- Consumes: Task 1; `logosBookNumber`, `openDb` (PR 1); `parseReference` (`reference-parser.ts`); `resolveTypeFilter`, `typeLabel` (existing); `json`, `formatParam`, `resolveLimit` (PR 2).
 - Produces:
   - `interface PassageResource { resourceId; title; abbreviatedTitle: string | null; authors: string | null; series: string | null; kind: string; type: string; purpose: string | null; era: string | null; communityRating: number | null; useCount: number }`
   - `PASSAGE_RESOURCE_KINDS: Record<PassageResourceKind, string>`; `type PassageResourceKind = "commentary" | "study bible" | "cross-references" | "bible" | "harmony"`
@@ -624,11 +627,11 @@ describe("find_passage_resources", () => {
 });
 ```
 
-In `tests/server-smoke.test.ts`, change the tool count to `28`.
+In `tests/server-smoke.test.ts`, change the tool count to `28`. In `tests/server-json.test.ts`, append `"find_passage_resources"` to `READ_TOOLS`, so the "offers format text|json on every read tool" test covers it.
 
 - [ ] **Step 7: Run it to verify it fails**
 
-Run: `npx vitest run tests/server-passage-resources.test.ts tests/server-smoke.test.ts`
+Run: `npx vitest run tests/server-passage-resources.test.ts tests/server-smoke.test.ts tests/server-json.test.ts`
 Expected: FAIL — unknown tool `find_passage_resources`.
 
 - [ ] **Step 8: Register the tool**
@@ -686,7 +689,7 @@ Expected: all PASS; `tsc` exits 0.
 - [ ] **Step 10: Commit**
 
 ```bash
-git add src/types.ts src/services/catalog-reader.ts src/index.ts tests/passage-resources.test.ts tests/server-passage-resources.test.ts tests/server-smoke.test.ts
+git add src/types.ts src/services/catalog-reader.ts src/index.ts tests/passage-resources.test.ts tests/server-passage-resources.test.ts tests/server-smoke.test.ts tests/server-json.test.ts
 git commit -m "feat: add find_passage_resources — owned books covering a passage, from catalog coverage data"
 ```
 
@@ -926,9 +929,10 @@ Expected: PASS.
 In `src/index.ts`: extend the study-data import with `isoSeconds, waitForHistoryVisit` and the tool-text import with `openConfirmationText`. Add after `LOGOS_NOT_RUNNING`:
 
 ```typescript
-// Guides and Factbook entries leave nothing the server can check (design doc
-// F12), so their replies say so.
-const UNCONFIRMABLE_NOTE = "Logos records no confirmation for guides or Factbook entries, so whether it opened can't be checked.";
+// Only resource links are confirmed through history.db. Guides and Factbook
+// entries are not checked (design doc F12; whether guides add history rows
+// is recorded in PR 1's verification), so their replies say so.
+const UNCONFIRMABLE_NOTE = "The server does not check whether Logos opened guides or Factbook entries.";
 ```
 
 In block 15 (`open_resource`), replace the handler body after the running check with:
@@ -957,7 +961,13 @@ In block 1 (`navigate_passage`), replace everything after the `bibleId` line wit
       return text(openConfirmationText(await waitForHistoryVisit(bibleId, since), what, "bible"));
 ```
 
-In block 12 (`open_factbook`), in the final `resolved` success message, insert `${UNCONFIRMABLE_NOTE} ` before `${DISPATCHED_NOTE}`:
+and append to its description: " With the current link style, waits up to 8 seconds for Logos to confirm the passage opened and reports what it opened."
+
+In block 12 (`open_factbook`), insert `${UNCONFIRMABLE_NOTE} ` before `${DISPATCHED_NOTE}` in both success messages, the legacy one and the final `resolved` one:
+
+```typescript
+          ? text(`Dispatched to Logos: Factbook entry for "${input}". ${UNCONFIRMABLE_NOTE} ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
+```
 
 ```typescript
         ? text(`Dispatched to Logos: Factbook entry ${entry.label} (\`${entry.id}\`). ${UNCONFIRMABLE_NOTE} ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
@@ -1004,7 +1014,11 @@ git commit -m "feat: confirm open_resource and navigate_passage through logos's 
 | `find_passage_resources` | Lists the commentaries, study Bibles and other books you own that cover a passage (filter by kind and commentary purpose) |
 ```
 
-and replace the `open_resource` row (Navigation & UI) with:
+and replace the `navigate_passage` and `open_resource` rows (Navigation & UI) with:
+
+```markdown
+| `navigate_passage` | Opens a passage in the Logos UI (in your most-used Bible, or one you name), and confirms it opened |
+```
 
 ```markdown
 | `open_resource` | Opens a specific commentary, lexicon, or other resource in Logos at a passage, and confirms it opened |
@@ -1020,7 +1034,11 @@ and replace the `open_resource` row (Navigation & UI) with:
 
 1. Description and Purpose: `27` → `28` tools.
 2. Database → Tool Dependencies: catalog row → `` `get_library_catalog`, `get_resource_types`, `navigate_passage` (picks the Bible), `find_passage_resources` ``; history row → `` `get_reading_history`, `open_resource` / `navigate_passage` (confirmation) ``.
-3. Phase 2 — replace row 15 and append row 28:
+3. Phase 2 — replace rows 6 and 15 and append row 28:
+
+```markdown
+| 6 | "Open Romans 12:1 in Logos" | `navigate_passage` | Returns "Opened … at …", or "Logos did not confirm" (pass if Logos was busy; note it) |
+```
 
 ```markdown
 | 15 | "Open that first commentary at Romans 12:1" | `open_resource` | Returns "Opened … at …", or "Logos did not confirm" (pass if Logos was busy; note it) |
@@ -1030,7 +1048,7 @@ and replace the `open_resource` row (Navigation & UI) with:
 | 28 | "Which of my commentaries cover John 5:14?" | `find_passage_resources` | Returns resources with IDs, or an empty-result message (not an error) |
 ```
 
-4. Testing Rules: test 15 may use a resource ID from test 28's result.
+4. Testing Rules: append to the "Success message = pass" bullet: "For navigate_passage and open_resource, an "Opened … at …" reply is a pass; "Logos did not confirm" is also a pass when Logos was busy (note it in the report)." Append to the "Empty results are OK" bullet's list: "passage resources".
 5. Phase 3: `After all 27 tests` → `After all 28 tests`; `PASS: 24/27 tools` → `PASS: 25/28 tools`; add `✓ find_passage_resources — OK (N resources)`.
 
 Check: `grep -n "27" ../README.md ../.claude/agents/tool-tester.md` shows no stale tool counts.
@@ -1062,10 +1080,16 @@ Restart the MCP client so it loads `dist/`; with Logos open and idle, record for
 git push -u origin feature/passage-resources
 ```
 
-Base is `main` if PR 2 has merged, else `feature/study-data`:
+If PR 2 has merged:
 
 ```bash
 gh pr create --repo robrawks/LogosBibleSoftwareMCP --base main --title "feat: find_passage_resources and confirmed resource opens" --body-file pr-body.md
+```
+
+Otherwise (stacked on PR 2):
+
+```bash
+gh pr create --repo robrawks/LogosBibleSoftwareMCP --base feature/study-data --title "feat: find_passage_resources and confirmed resource opens" --body-file pr-body.md
 ```
 
 `pr-body.md` (not committed):
@@ -1076,7 +1100,7 @@ PR 3 of 3 from docs/design/2026-10-15-logos54-fixes-and-study-data-design.md. De
 ## What changes
 - New tool find_passage_resources: owned resources whose catalog coverage (ReferenceSupersets) includes a passage; filter by kind and commentary purpose; commentaries first, then most used. 27 → 28 tools.
 - open_resource and navigate_passage wait up to 8 s for a history.db row and report what Logos opened, or that it did not respond.
-- Guides and Factbook replies say they cannot be confirmed.
+- Guide and Factbook replies say the server does not check whether they opened.
 
 ## Verified on Windows, Logos 54.0.0.252
 [results of Task 4 Step 5]

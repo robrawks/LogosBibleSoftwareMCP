@@ -50,6 +50,7 @@ Recorded here so the reviewer can check them; each is applied in the task named.
 4. **Lookup also reads the tiny `Languages` table** to prefer English descriptions without hard-coding a language ID. (Task 5)
 5. **Unused `searchBibleInLogos()` is removed** from `logos-app.ts` (no caller; its link format is one Logos 54 ignores). (Task 9)
 6. **`search_all` with `current` links dispatches nothing** and tells the assistant to ask the user to search, since no working link exists yet (Open Question 1; Task 11 probes it). (Task 9)
+7. **`diagnose` treats version-dependent stores as optional.** The spec says `diagnose` lists new stores automatically, but the CLI fails on any missing file, so a store only some Logos versions have would fail it on every other install. That contradicts the spec's "not available, not an error" rule. `OPTIONAL_DB_NAMES` (`visualMarkup`, absent on Logos 54; `autoComplete`, absent until Logos first runs) are reported as not present without failing. PR 2 adds its stores to the set. (Task 8)
 
 ## Interfaces Produced for PRs 2 and 3
 
@@ -58,9 +59,11 @@ Recorded here so the reviewer can check them; each is applied in the task named.
 | `src/services/db.ts` | `openDb(path)`, `escapeLike(s)`, `hasTable(db, table)` | PR 2 readers, PR 3 |
 | `src/services/logos-books.ts` | `logosBookName(n)`, `logosBookNumber(name)`, `parseLogosBibleRef(raw)`, `logosRawToHuman(raw)`, types `LogosRefPoint`, `LogosBibleRange` | PR 2 (reading plans, history, passage lists), PR 3 (coverage) |
 | `src/utils/clippings.ts` | `decodeLogosBlob(blob)` | PR 2 passage lists |
-| `src/services/logos-urls.ts` | `buildResourceUrl(resourceId, reference?)` | PR 3 |
+| `src/services/logos-urls.ts` | `buildResourceUrl(resourceId, reference?)`, `buildPassageUrl(reference, bibleResourceId, style?)` | PR 3 |
 | `src/services/logos-app.ts` | `launchLogosUrl(build)`, `isLogosRunning()` | PR 3 |
+| `src/config.ts` | `LOGOS_LINK_STYLE`, `DEFAULT_BIBLE_RESOURCE_ID`, `OPTIONAL_DB_NAMES` | PR 2 (`OPTIONAL_DB_NAMES`), PR 3 (`navigate_passage`) |
 | `src/utils/tool-text.ts` | `DISPATCHED_NOTE`, `uiFollowUpHint(panelType, platform?)` | PR 3 |
+| `src/index.ts` | `LOGOS_NOT_RUNNING` constant; the rewritten UI tool handlers (blocks 1, 12, 15, 16) | PR 3 |
 | `tests/helpers/fixtures.ts` | `makeFixtureDirs()`, `createDb(path, sql)`, `useFixtureDirs(dirs)`, `cleanupFixtureDirs(dirs)`, `FixtureDirs` | PR 2, PR 3 tests |
 | `tests/helpers/schemas.ts` | `NOTES_SCHEMA_LEGACY`, `NOTES_SCHEMA_LOGOS54`, `CATALOG_SCHEMA`, `AUTOCOMPLETE_SCHEMA` | PR 2, PR 3 tests |
 
@@ -77,7 +80,8 @@ Recorded here so the reviewer can check them; each is applied in the task named.
 | `src/services/catalog-reader.ts` | Modify | Use `db.ts`; `getPreferredBibleResourceId()` |
 | `src/services/logos-app.ts` | Modify | Keep only `launchLogosUrl` / `openUrl` and `isLogosRunning` |
 | `src/utils/clippings.ts` | Modify | `decodeLogosBlob()` with the 5-byte header; `decodeClippingBlob` alias |
-| `src/config.ts` | Modify | `DB_PATHS.autoComplete`, `LOGOS_LINK_STYLE`, `DEFAULT_BIBLE_RESOURCE_ID` |
+| `src/config.ts` | Modify | `DB_PATHS.autoComplete`, `LOGOS_LINK_STYLE`, `DEFAULT_BIBLE_RESOURCE_ID`, `OPTIONAL_DB_NAMES` |
+| `src/cli.ts` | Modify | `diagnose` CLI: optional stores don't fail the check |
 | `src/types.ts` | Modify | `HighlightResult` reference fields, knowledge-base and guide-target types |
 | `src/index.ts` | Modify | UI handlers use builders/lookup; honest messages; highlight output |
 | `tests/helpers/fixtures.ts`, `tests/helpers/schemas.ts` | Create | Fixture harness and Logos-shaped schemas |
@@ -2162,15 +2166,18 @@ git commit -m "feat: find the user's most-used bible for passage links"
 **Files:**
 - Create: `src/utils/tool-text.ts`
 - Create: `tests/tool-text.test.ts`
-- Modify: `src/index.ts` (`get_logos_state` handler and description; `capture_panel_screenshot` description)
+- Modify: `src/index.ts` (`get_logos_state` handler and description; `capture_panel_screenshot` description; `diagnose` database list)
+- Modify: `src/config.ts` (`OPTIONAL_DB_NAMES` after `DB_PATHS`)
+- Modify: `src/cli.ts:18-23` (database loop)
 
 **Interfaces:**
-- Consumes: `CaptureToolType` (`types.ts`), `KnowledgeEntry` (`types.ts`, Task 5).
+- Consumes: `CaptureToolType` (`types.ts`), `KnowledgeEntry` (`types.ts`, Task 5), `DB_PATHS.autoComplete` (Task 5).
 - Produces (`src/utils/tool-text.ts`):
   - `DISPATCHED_NOTE: string` — "This only opens the Logos UI on the user's screen — no data is returned to you."
   - `uiFollowUpHint(panelType: CaptureToolType, platform?: NodeJS.Platform): string` — leading space when non-empty; `""` off macOS.
   - `logosStateText(titles: string[], platform?: NodeJS.Platform): string`
   - `formatKnowledgeChoices(matches: KnowledgeEntry[]): string`
+- Produces (`src/config.ts`): `OPTIONAL_DB_NAMES: ReadonlySet<string>` — `DB_PATHS` keys that `diagnose` reports as "not present" instead of failing. PR 2 adds its stores.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2298,16 +2305,50 @@ In the `capture_panel_screenshot` registration (block 23), prefix its descriptio
 
 `DISPATCHED_NOTE`, `uiFollowUpHint` and `formatKnowledgeChoices` are used in Task 9; until then `tsc` accepts the unused named imports (no `noUnusedLocals`).
 
-- [ ] **Step 5: Run the tests and the build**
+- [ ] **Step 5: Let `diagnose` tolerate stores only some Logos versions have**
+
+In `src/config.ts`, add after the `DB_PATHS` object:
+
+```typescript
+// DB_PATHS entries that only some Logos versions (or a Logos that has run at
+// least once) have. diagnose reports them as not present instead of failing;
+// their tools fall back or answer "not available". visualMarkup is absent on
+// Logos 54 (highlights moved to notestool.db); AutoComplete.db is built on
+// first run.
+export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete"]);
+```
+
+In `src/cli.ts`, add `OPTIONAL_DB_NAMES` to the `./config.js` import and replace the database loop with:
+
+```typescript
+for (const [name, path] of Object.entries(DB_PATHS)) {
+  const found = existsSync(path);
+  const optional = OPTIONAL_DB_NAMES.has(name);
+  if (!found && !optional) ok = false;
+  const icon = found ? "✓" : optional ? "-" : "✗";
+  const note = !found && optional ? "  (optional: not on every Logos version)" : "";
+  console.log(`  ${icon} ${name.padEnd(14)} ${path}${note}`);
+}
+```
+
+In `src/index.ts`, add `OPTIONAL_DB_NAMES` to the config import (Task 9 rewrites that import; keep it there), and in the `diagnose` handler (block 24) replace the `const icon = …` line with:
+
+```typescript
+        const icon = found ? "OK" : OPTIONAL_DB_NAMES.has(name) ? "not present (optional: not on every Logos version)" : "MISSING";
+```
+
+(No unit test: both are report formatting. PR 2's server smoke test asserts the `diagnose` tool's wording.)
+
+- [ ] **Step 6: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/utils/tool-text.ts src/index.ts tests/tool-text.test.ts
-git commit -m "fix: report honest logos status on windows — no window titles or screenshot hints off macos"
+git add src/utils/tool-text.ts src/index.ts src/config.ts src/cli.ts tests/tool-text.test.ts
+git commit -m "fix: report honest logos status on windows — no window titles or screenshot hints off macos, optional stores don't fail diagnose"
 ```
 
 ---
@@ -2424,6 +2465,7 @@ import {
   BIBLIA_API_KEY,
   LOGOS_LINK_STYLE,
   DEFAULT_BIBLE_RESOURCE_ID,
+  OPTIONAL_DB_NAMES,
 } from "./config.js";
 ```
 
