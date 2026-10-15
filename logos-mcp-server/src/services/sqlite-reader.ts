@@ -3,6 +3,7 @@ import { stripRichText } from "../utils/strip-markup.js";
 import { decodeClippingBlob, extractClippingText } from "../utils/clippings.js";
 import { getResourceTitles } from "./catalog-reader.js";
 import { openDb, escapeLike } from "./db.js";
+import { logosRawToHuman } from "./logos-books.js";
 import { parseReference, resolveBookName } from "./reference-parser.js";
 import type {
   ClippingResult,
@@ -504,34 +505,6 @@ function safeParseArray(json: string | null): string[] {
 
 // ─── Anchor / Tag JSON parsing ───────────────────────────────────────────────
 
-// Logos Bible book numbers (standard Protestant canon order, 1-66). Numbers
-// outside this range (e.g. deuterocanonical books in some installs) are left
-// unmapped and parse to null — best-effort only.
-const BOOKS_BY_NUMBER: Record<number, string> = {
-  1: "Genesis", 2: "Exodus", 3: "Leviticus", 4: "Numbers", 5: "Deuteronomy",
-  6: "Joshua", 7: "Judges", 8: "Ruth", 9: "1 Samuel", 10: "2 Samuel",
-  11: "1 Kings", 12: "2 Kings", 13: "1 Chronicles", 14: "2 Chronicles",
-  15: "Ezra", 16: "Nehemiah", 17: "Esther", 18: "Job", 19: "Psalms",
-  20: "Proverbs", 21: "Ecclesiastes", 22: "Song of Solomon", 23: "Isaiah",
-  24: "Jeremiah", 25: "Lamentations", 26: "Ezekiel", 27: "Daniel",
-  28: "Hosea", 29: "Joel", 30: "Amos", 31: "Obadiah", 32: "Jonah",
-  33: "Micah", 34: "Nahum", 35: "Habakkuk", 36: "Zephaniah", 37: "Haggai",
-  38: "Zechariah", 39: "Malachi", 40: "Matthew", 41: "Mark", 42: "Luke",
-  43: "John", 44: "Acts", 45: "Romans", 46: "1 Corinthians",
-  47: "2 Corinthians", 48: "Galatians", 49: "Ephesians", 50: "Philippians",
-  51: "Colossians", 52: "1 Thessalonians", 53: "2 Thessalonians",
-  54: "1 Timothy", 55: "2 Timothy", 56: "Titus", 57: "Philemon",
-  58: "Hebrews", 59: "James", 60: "1 Peter", 61: "2 Peter", 62: "1 John",
-  63: "2 John", 64: "3 John", 65: "Jude", 66: "Revelation",
-};
-
-// Matches raw Logos reference strings found in AnchorsJson, e.g.:
-//   "bible.44.3.21"              -> Acts 3:21
-//   "bible.44.3.21-44.3.23"      -> Acts 3:21-23
-//   "bible+kjv.6.1.8"            -> Joshua 1:8 (version qualifier ignored)
-const BIBLE_RAW_RE =
-  /^bible(?:\+[a-z0-9]*)?\.(\d+)\.(\d+)(?:\.(\d+))?(?:-(\d+)\.(\d+)(?:\.(\d+))?)?$/i;
-
 // Best-effort human-readable Bible reference from a note's AnchorsJson.
 // Returns null when the JSON is missing/malformed or no bible reference anchor
 // is found. Never throws.
@@ -551,38 +524,10 @@ export function parseAnchorReference(anchorsJson: string | null): string | null 
     if (typeof reference !== "object" || reference === null) continue;
     const raw = (reference as Record<string, unknown>).raw;
     if (typeof raw !== "string") continue;
-    const human = bibleRawToHuman(raw);
+    const human = logosRawToHuman(raw);
     if (human) return human;
   }
   return null;
-}
-
-function bibleRawToHuman(raw: string): string | null {
-  const m = raw.match(BIBLE_RAW_RE);
-  if (!m) return null;
-  const book = BOOKS_BY_NUMBER[parseInt(m[1], 10)];
-  if (!book) return null;
-
-  const chapter = parseInt(m[2], 10);
-  const verse = m[3] ? parseInt(m[3], 10) : undefined;
-  const endBook = m[4] ? BOOKS_BY_NUMBER[parseInt(m[4], 10)] : undefined;
-  const endChapter = m[5] ? parseInt(m[5], 10) : undefined;
-  const endVerse = m[6] ? parseInt(m[6], 10) : undefined;
-
-  let result = `${book} ${chapter}`;
-  if (verse !== undefined) result += `:${verse}`;
-  if (endChapter !== undefined) {
-    if (endBook !== undefined && endBook !== book) {
-      // Cross-book range, e.g. "bible.1.50.26-2.1.1" -> Genesis 50:26-Exodus 1:1
-      result += `-${endBook} ${endChapter}`;
-      if (endVerse !== undefined) result += `:${endVerse}`;
-    } else if (endVerse !== undefined) {
-      result += endChapter === chapter ? `-${endVerse}` : `-${endChapter}:${endVerse}`;
-    } else {
-      result += `-${endChapter}`;
-    }
-  }
-  return result;
 }
 
 // Tags from a note's TagsJson, e.g. [{"plain":{"text":"faith"}}] -> ["faith"].
