@@ -2745,7 +2745,7 @@ git commit -m "fix: open passages, guides, factbook entries and searches with li
 - Consumes: tool behavior from Tasks 4–9.
 - Produces: no code.
 
-- [ ] **Step 1: README — Prerequisites**
+- [x] **Step 1: README — Prerequisites**
 
 In the Prerequisites table replace three rows:
 
@@ -2758,7 +2758,7 @@ In the Prerequisites table replace three rows:
 | **Xcode Command Line Tools** | macOS only: `clang` is required to compile the window-capture helper used by `capture_panel_screenshot` (install: `xcode-select --install`) |
 ```
 
-- [ ] **Step 2: README — tool tables**
+- [x] **Step 2: README — tool tables**
 
 In "Navigation & UI", replace the table body rows with:
 
@@ -2784,7 +2784,7 @@ In "Personal Study Data", replace the `get_user_highlights` row with:
 | `get_user_highlights` | Reads your highlights: style, resource, the passage covered, and date |
 ```
 
-- [ ] **Step 3: README — project structure**
+- [x] **Step 3: README — project structure**
 
 Replace the `logos-mcp-server/` part of the Project Structure tree with:
 
@@ -2812,7 +2812,7 @@ Replace the `logos-mcp-server/` part of the Project Structure tree with:
 │   └── dist/                          # Built output (after npm run build)
 ```
 
-- [ ] **Step 4: README — How It Works, link style, book numbers**
+- [x] **Step 4: README — How It Works, link style, book numbers**
 
 In "How It Works", replace the "URL schemes" bullet with:
 
@@ -2823,6 +2823,8 @@ In "How It Works", replace the "URL schemes" bullet with:
 Insert after the "Logos Data Path" section (before "## Troubleshooting"):
 
 ````markdown
+
+> **As built (`dd83e1d`):** matches plan.
 ## Logos Link Style
 
 Logos 54 ignores the `logos4:///…?…` query-string links older versions accepted, so by default the server sends the link formats verified on Logos 54. Set `LOGOS_LINK_STYLE` in the `env` block of `.mcp.json` to choose:
