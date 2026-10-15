@@ -225,6 +225,35 @@ export function getResourceTypeSummary(): ResourceTypeSummary[] {
   }
 }
 
+// ─── Preferred Bible ────────────────────────────────────────────────────────
+
+/**
+ * Finds the Bible the user opens most (catalog UseCount), for passage links
+ * that must name a Bible resource.
+ *
+ * @returns The resource ID, or null when the catalog is missing or holds no
+ *   available Bible. Never throws.
+ */
+export function getPreferredBibleResourceId(): string | null {
+  try {
+    const db = openDb(DB_PATHS.catalog);
+    try {
+      const row = db.prepare(`
+        SELECT ResourceId FROM Records
+        WHERE Type IN ('text.monograph.bible', 'text.bible')
+          AND Availability >= 1 AND IsDataset = 0
+        ORDER BY UseCount DESC
+        LIMIT 1
+      `).get() as { ResourceId: string } | undefined;
+      return row?.ResourceId ?? null;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null; // catalog.db missing/unreadable
+  }
+}
+
 // ─── Resource Title Lookup ──────────────────────────────────────────────────
 
 // Best-effort title lookup for a resourceId. Returns null when the catalog
