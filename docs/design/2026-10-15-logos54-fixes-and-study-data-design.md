@@ -73,7 +73,7 @@ All findings come from a live Logos 54.0.0.252 install on Windows 11 (profile `x
 |---|---|---|---|
 | 1 | `fix/logos54-compat` | Book numbers, facet-table verses, link formats, knowledge-base lookup, honest word study/search, Windows status honesty, blob decoder fix, compatibility switch, docs | — |
 | 2 | `feature/study-data` | Reading plans (fixing `get_reading_progress`), `get_resource_reading_progress`, `get_reading_history`, `get_passage_lists`, `format: "json"` | PR 1 |
-| 3 | `feature/passage-resources` | `find_passage_resources`, history confirmation in `open_resource` | PR 1 |
+| 3 | `feature/passage-resources` | `find_passage_resources`, history confirmation in `open_resource` | PR 1, PR 2 (`format`/`json()` helper, history reader) |
 
 Each PR is independently reviewable, passes `npm test` and `npm run build`, updates the tool count everywhere it appears, and states in its description what was verified on Windows Logos 54 and what needs macOS confirmation.
 
@@ -203,7 +203,7 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 ### 3.1 `find_passage_resources` (new) — in `catalog-reader.ts`
 
 - Input: `passage`; optional `kind` (`commentary`, `study bible`, `cross-references`, `bible`, `harmony`; mapped through the existing type labels), `purpose` (`exegetical`, `expositional`, `application`, `devotional`, `concise`, from `commentary-purpose:` traits), `limit` (default 25), `format`.
-- Parses `ReferenceSupersets` (space-separated). Uses only `bible` / `bible+edition` entries: `bible.B.C.V-B.C.V`, `bible.B.C-B.C`, `bible.B-B`; missing end parts are treated as open ("to the end of the chapter/book"). Ignores other range types (`af.`, `augustine.`, …). The passage's start must fall inside a range (Logos book numbers via 1.1).
+- Parses `ReferenceSupersets` (tab-separated on the test install, e.g. `bible.72.1.1-72.4.18<TAB>bible.78.1.1-78.1.25`; split on any whitespace). Uses only `bible` / `bible+edition` entries: `bible.B.C.V-B.C.V`, `bible.B.C-B.C`, `bible.B-B`; missing end parts are treated as open ("to the end of the chapter/book"). Ignores other range types (`af.`, `augustine.`, …). The passage's start must fall inside a range (Logos book numbers via 1.1).
 - Output per resource: title, abbreviation, authors, series, kind, purpose, era, community rating, resource ID. Sort: commentaries first, then `UseCount` desc, then `CommunityRating` desc. `UseCount` is used for sorting only and appears in JSON, not text (matching the response-cleanup design that removed it from catalog text).
 - Parsed ranges are cached per process, keyed by the catalog file's mtime.
 - README notes that the order differs from the user's Passage Guide prioritization list, which is not stored locally (F18).
