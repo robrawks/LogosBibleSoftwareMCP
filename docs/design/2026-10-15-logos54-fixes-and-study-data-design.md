@@ -140,7 +140,7 @@ All Logos URL construction moves here; `logos-app.ts` keeps only the launching (
 ### 1.4 Knowledge-base lookup — new `src/services/knowledge-lookup.ts`
 
 - New `DB_PATHS.autoComplete` = `join(LOGOS_CATALOG_DIR, "AutoComplete", "AutoComplete.db")` (~110 MB on the test install; queries touch only `Labels`, `Terms`, `IconKinds` and `Descriptions`).
-- `lookupKnowledgeIds(name)`: exact, case-insensitive match on `Labels.LabelText` joined to `Terms` and `IconKinds`; returns distinct `{ id, label, kind, description }` (English description preferred). Language rows are de-duplicated by `id`.
+- `lookupKnowledgeIds(name)`: exact, case-insensitive match on `Labels.LabelText`, including accented letters (SQLite's `NOCASE` folds only A–Z, so a miss on a non-ASCII name is retried with full case folding) joined to `Terms` and `IconKinds`; returns distinct `{ id, label, kind, description }` (English description preferred). Language rows are de-duplicated by `id`.
 - `open_factbook`: if exactly one ID matches, or the caller passes an ID (`bk.…`) directly, open it. If several match (e.g. "Moses" → person `bk.#Moses` and topic `bk.%Moses_Person`), return the list and ask the assistant to call again with `kb_id`. No match → actionable "no Factbook entry named …".
 - New optional `kb_id` parameter on `open_factbook`; `open_guide` accepts a knowledge-base ID or a name for Topic Guide.
 
@@ -205,12 +205,12 @@ Reads `PassageLists` (non-deleted): `Title`, `ModifiedDate`, `CompressedItems`. 
 - Input: `passage`; optional `kind` (`commentary`, `study bible`, `cross-references`, `bible`, `harmony`; mapped through the existing type labels), `purpose` (`exegetical`, `expositional`, `application`, `devotional`, `concise`, from `commentary-purpose:` traits), `limit` (default 25), `format`.
 - Parses `ReferenceSupersets` (tab-separated on the test install, e.g. `bible.72.1.1-72.4.18<TAB>bible.78.1.1-78.1.25`; split on any whitespace). Uses only `bible` / `bible+edition` entries: `bible.B.C.V-B.C.V`, `bible.B.C-B.C`, `bible.B-B`; missing end parts are treated as open ("to the end of the chapter/book"). Ignores other range types (`af.`, `augustine.`, …). The passage's start must fall inside a range (Logos book numbers via 1.1).
 - Output per resource: title, abbreviation, authors, series, kind, purpose, era, community rating, resource ID. Sort: commentaries first, then `UseCount` desc, then `CommunityRating` desc. `UseCount` is used for sorting only and appears in JSON, not text (matching the response-cleanup design that removed it from catalog text).
-- Parsed ranges are cached per process, keyed by the catalog file's mtime.
+- Parsed ranges are cached per process, keyed by the modification time and size of `catalog.db` and `catalog.db-wal` (Logos writes the catalog in WAL mode, so a change can sit in the `-wal` file without touching the main file).
 - README notes that the order differs from the user's Passage Guide prioritization list, which is not stored locally (F18).
 
 ### 3.2 `open_resource` confirms
 
-After launching, poll `history.db` (read-only) for up to 8 s for a row newer than the launch time whose bookmark contains the resource ID. Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them.
+Before launching, snapshot the resource's `history.db` rows (`Id` → `LastVisited`). After launching, poll `history.db` (read-only) for up to 8 s for a row for that resource that is not in the snapshot, or whose `LastVisited` changed. A launch timestamp is not used: `LastVisited` has whole-second resolution, so an earlier visit in the same second would count. A failed read while polling counts as "not yet". Report "Opened <abbrev> at <Subtitle>" or "Sent to Logos, but Logos did not confirm opening it — Logos may be busy; try again once it responds." (F20). When the history store is absent, keep today's message. Guide and Factbook replies say the server does not check them.
 
 ### 3.3 No batch tool
 
