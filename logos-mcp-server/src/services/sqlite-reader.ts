@@ -1,6 +1,6 @@
 import { DB_PATHS } from "../config.js";
 import { stripRichText } from "../utils/strip-markup.js";
-import { decodeClippingBlob, extractClippingText } from "../utils/clippings.js";
+import { decodeLogosBlob, extractClippingText } from "../utils/clippings.js";
 import { getResourceTitles } from "./catalog-reader.js";
 import { openDb, escapeLike } from "./db.js";
 import { logosRawToHuman } from "./logos-books.js";
@@ -375,9 +375,9 @@ export function getClippings(options: {
       resourceId: r.ResourceId,
       createdDate: r.CreatedDate,
       collectionTitle: r.CollectionTitle,
-      title: extractClippingText(decodeClippingBlob(r.TitleBlob)),
-      content: extractClippingText(decodeClippingBlob(r.ContentBlob)),
-      notes: extractClippingText(decodeClippingBlob(r.NotesBlob)),
+      title: extractClippingText(decodeLogosBlob(r.TitleBlob)),
+      content: extractClippingText(decodeLogosBlob(r.ContentBlob)),
+      notes: extractClippingText(decodeLogosBlob(r.NotesBlob)),
       tags: r.Tags,
     }));
   } finally {
