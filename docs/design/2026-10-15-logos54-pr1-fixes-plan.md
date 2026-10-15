@@ -2095,7 +2095,7 @@ git commit -m "feat: build logos links in the formats verified on logos 54 — L
 - Consumes: `openDb` (Task 1); `CATALOG_SCHEMA`, fixture helpers (Task 1).
 - Produces: `getPreferredBibleResourceId(): string | null` — never throws.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/preferred-bible.test.ts`:
 
@@ -2155,12 +2155,12 @@ describe("getPreferredBibleResourceId without a catalog", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run tests/preferred-bible.test.ts`
 Expected: FAIL — `catalog.getPreferredBibleResourceId is not a function`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add to `src/services/catalog-reader.ts` before "Resource Title Lookup":
 
@@ -2191,17 +2191,19 @@ export function getPreferredBibleResourceId(): string | null {
 }
 ```
 
-- [ ] **Step 4: Run the tests and the build**
+- [x] **Step 4: Run the tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/services/catalog-reader.ts tests/preferred-bible.test.ts
 git commit -m "feat: find the user's most-used bible for passage links"
 ```
+
+> **As built (`ed50732`):** matches plan.
 
 ---
 
