@@ -141,7 +141,16 @@ export const DEFAULT_BIBLE = "LEB";
 
 // ─── Logos URL Schemes ───────────────────────────────────────────────────────
 
-export const LOGOS_URL_BASE = "logos4:";
+// "current" = link formats verified on Logos 54 (design doc F1/F5/F6);
+// "legacy"  = the logos4:/// query-string URLs used before, reported to work
+// on macOS Logos 48. Whether Logos accepted a guide/Factbook link can't be
+// detected, so this is an explicit setting.
+export type LinkStyle = "current" | "legacy";
+export const LOGOS_LINK_STYLE: LinkStyle =
+  process.env.LOGOS_LINK_STYLE?.trim().toLowerCase() === "legacy" ? "legacy" : "current";
+
+// Bible to open passages in when the catalog names none.
+export const DEFAULT_BIBLE_RESOURCE_ID = "LLS:LEB";
 
 // ─── Screenshot Capture ─────────────────────────────────────────────────────
 

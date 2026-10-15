@@ -48,6 +48,11 @@ export interface LogosCommandResult {
   error?: string;
 }
 
+/** What a guide link points at: a Bible reference or a knowledge-base ID. */
+export type GuideTarget =
+  | { kind: "bible"; reference: string }
+  | { kind: "kb"; id: string };
+
 // ─── SQLite / User Data Types ────────────────────────────────────────────────
 
 export interface HighlightResult {
