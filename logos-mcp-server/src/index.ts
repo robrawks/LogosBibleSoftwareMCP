@@ -22,6 +22,7 @@ import {
   logosStateText,
   formatKnowledgeChoices,
   windowTitlesAvailable,
+  openConfirmationText,
 } from "./utils/tool-text.js";
 import { resolveLimit, toJsonText } from "./utils/output.js";
 
@@ -49,8 +50,8 @@ import {
 } from "./services/sqlite-reader.js";
 import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId, findPassageResources } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import { getReadingPlans, getResourceReadingProgress, getReadingHistory, getPassageLists } from "./services/study-data.js";
-import type { CaptureToolType, GuideTarget, GuideTargetResolution, PassageResource, ReadingPlan, ReadingProgress } from "./types.js";
+import { getReadingPlans, getResourceReadingProgress, getReadingHistory, getPassageLists, snapshotHistory, waitForHistoryVisit } from "./services/study-data.js";
+import type { CaptureToolType, GuideTarget, GuideTargetResolution, HistoryTarget, PassageResource, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -142,7 +143,7 @@ async function main() {
   // ── 1. navigate_passage ──────────────────────────────────────────────────
   server.tool(
     "navigate_passage",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI, in bible_resource_id if given, otherwise in the user's most-used Bible. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or (macOS) to position the app before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI, in bible_resource_id if given, otherwise in the user's most-used Bible. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or (macOS) to position the app before capture_panel_screenshot. With the current link style, waits up to 8 seconds for Logos to confirm the passage opened and reports what it opened.",
     {
       reference: z.string().describe("Bible reference (e.g., 'Genesis 1:1', 'Romans 8:28-30')"),
       bible_resource_id: z.string().optional()
@@ -151,10 +152,16 @@ async function main() {
     async ({ reference, bible_resource_id }) => {
       if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
       const bibleId = bible_resource_id ?? getPreferredBibleResourceId() ?? DEFAULT_BIBLE_RESOURCE_ID;
+      // Current links open the passage as a resource, which Logos records.
+      const target: HistoryTarget = { kind: "resource", resourceId: bibleId, reference };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(target) : null;
       const result = await launchLogosUrl(() => buildPassageUrl(reference, bibleId));
       if (!result.success) return err(`Failed to open passage: ${result.error}`);
-      const where = LOGOS_LINK_STYLE === "current" ? ` in \`${bibleId}\`` : "";
-      return text(`Dispatched to Logos: Bible passage ${reference}${where}. ${DISPATCHED_NOTE}${uiFollowUpHint("bible")}`);
+      if (LOGOS_LINK_STYLE === "legacy") {
+        return text(`Dispatched to Logos: Bible passage ${reference}. ${DISPATCHED_NOTE}${uiFollowUpHint("bible")}`);
+      }
+      const what = `Bible passage ${reference} in \`${bibleId}\``;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "bible"));
     }
   );
 
@@ -466,7 +473,7 @@ async function main() {
   // ── 12. open_factbook ────────────────────────────────────────────────────
   server.tool(
     "open_factbook",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). The name is looked up in Logos's own index; when it matches several entries (e.g. Moses the person and Moses the topic) nothing opens and the reply lists them — call again with kb_id.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). The name is looked up in Logos's own index; when it matches several entries (e.g. Moses the person and Moses the topic) nothing opens and the reply lists them — call again with kb_id. With the current link style, waits up to 8 seconds for Logos to confirm the entry opened and reports what it opened.",
     {
       topic: z.string().optional().describe("Name to look up (e.g., 'Moses', 'Jerusalem', 'Passover')"),
       kb_id: z.string().optional()
@@ -497,10 +504,12 @@ async function main() {
         return text(`"${input}" matches ${resolution.matches.length} Factbook entries, so nothing was opened. Call open_factbook again with kb_id set to the one you mean:\n\n${formatKnowledgeChoices(resolution.matches)}`);
       }
       const { entry } = resolution;
+      const target: HistoryTarget = { kind: "factbook", kbId: entry.id };
+      const before = snapshotHistory(target);
       const result = await launchLogosUrl(() => buildFactbookUrl(entry.id));
-      return result.success
-        ? text(`Dispatched to Logos: Factbook entry ${entry.label} (\`${entry.id}\`). ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
-        : err(`Failed to open Factbook: ${result.error}`);
+      if (!result.success) return err(`Failed to open Factbook: ${result.error}`);
+      const what = `Factbook entry ${entry.label} (\`${entry.id}\`)`;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "factbook"));
     }
   );
 
@@ -577,25 +586,26 @@ async function main() {
   // ── 15. open_resource ─────────────────────────────────────────────────────
   server.tool(
     "open_resource",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or (macOS) to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or (macOS) to position Logos before capture_panel_screenshot. Waits up to 8 seconds for Logos to confirm the resource opened and reports what it opened.",
     {
       resource_id: z.string().describe("Resource ID from the library catalog (e.g., 'LLS:CLVNCOMM')"),
       reference: z.string().optional().describe("Bible reference to navigate to within the resource (e.g., 'Romans 12:1')"),
     },
     async ({ resource_id, reference }) => {
       if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const target: HistoryTarget = { kind: "resource", resourceId: resource_id, reference };
+      const before = snapshotHistory(target);
       const result = await launchLogosUrl(() => buildResourceUrl(resource_id, reference));
-      const refStr = reference ? ` at ${reference}` : "";
-      return result.success
-        ? text(`Dispatched to Logos: resource \`${resource_id}\`${refStr}. ${DISPATCHED_NOTE}${uiFollowUpHint("resource")}`)
-        : err(`Failed to open resource: ${result.error}`);
+      if (!result.success) return err(`Failed to open resource: ${result.error}`);
+      const what = `resource \`${resource_id}\`${reference ? ` at ${reference}` : ""}`;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "resource"));
     }
   );
 
   // ── 16. open_guide ────────────────────────────────────────────────────────
   server.tool(
     "open_guide",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a guide in Logos: a Passage Guide or Exegetical Guide for a Bible passage, or a Topic Guide for a topic. A topic name is looked up in Logos's own index; when it matches several entries nothing opens and the reply lists their IDs — call again with one as reference.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a guide in Logos: a Passage Guide or Exegetical Guide for a Bible passage, or a Topic Guide for a topic. A topic name is looked up in Logos's own index; when it matches several entries nothing opens and the reply lists their IDs — call again with one as reference. With the current link style, waits up to 8 seconds for Logos to confirm the guide opened and reports what it opened.",
     {
       guide_type: z.string()
         .describe("Guide title as shown in Logos: 'Passage Guide', 'Exegetical Guide' or 'Topic Guide' (verified); 'Sermon Starter Guide' opens without its theme (Logos ignores the subject in the link)"),
@@ -623,26 +633,28 @@ async function main() {
           : { kind: "kb", id: resolution.entry.id };
       const subject =
         resolution.status === "bible" ? resolution.reference : `${resolution.entry.label} (\`${resolution.entry.id}\`)`;
+      const historyTarget: HistoryTarget = { kind: "guide", guideTitle: guide_type, subject: target };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(historyTarget) : null;
       const result = await launchLogosUrl(() => buildGuideUrl(guide_type, target));
-      return result.success
-        ? text(`Dispatched to Logos: ${guide_type} for ${subject}. ${DISPATCHED_NOTE}${uiFollowUpHint("guide")}`)
-        : err(`Failed to open guide: ${result.error}`);
+      if (!result.success) return err(`Failed to open guide: ${result.error}`);
+      return text(openConfirmationText(await waitForHistoryVisit(historyTarget, before), `${guide_type} for ${subject}`, "guide"));
     }
   );
 
   // ── 17. search_all ────────────────────────────────────────────────────────
   server.tool(
     "search_all",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Run a search across ALL resources in the Logos library (not just Bible text) in Logos's Search panel. Use for broad research.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Run a search across ALL resources in the Logos library (not just Bible text) in Logos's Search panel. Use for broad research. With the current link style, waits up to 8 seconds for Logos to confirm the search opened and reports what it opened.",
     {
       query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
     },
     async ({ query }) => {
       if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const target: HistoryTarget = { kind: "search", query, searchKind: "AllSearch" };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(target) : null;
       const result = await launchLogosUrl(() => buildSearchAllUrl(query));
-      return result.success
-        ? text(`Dispatched to Logos: search for "${query}" across all resources. ${DISPATCHED_NOTE}${uiFollowUpHint("searchall")}`)
-        : err(`Failed to open search: ${result.error}`);
+      if (!result.success) return err(`Failed to open search: ${result.error}`);
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), `search for "${query}" across all resources`, "searchall"));
     }
   );
 

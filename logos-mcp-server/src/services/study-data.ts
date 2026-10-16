@@ -1,10 +1,11 @@
 import type Database from "better-sqlite3";
 import { DB_PATHS } from "../config.js";
 import { openDb, hasTable, escapeLike } from "./db.js";
-import { logosRawToHuman } from "./logos-books.js";
+import { logosRawToHuman, parseLogosBibleRef, logosBookNumber } from "./logos-books.js";
+import { parseReference } from "./reference-parser.js";
 import { getResourceTitles, getResourceIdsOfType } from "./catalog-reader.js";
 import { decodeLogosBlob } from "../utils/clippings.js";
-import type { HistoryBookmark, HistoryVisit, PassageList, PassageListEntry, PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
+import type { HistoryBookmark, HistoryConfirmation, HistoryTarget, HistoryVisit, PassageList, PassageListEntry, PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
 
 // Readers for study data Logos keeps locally beyond notes and highlights.
 // Each returns null when its store is absent (older Logos versions), so tools
@@ -279,19 +280,25 @@ export function getResourceReadingProgress(options: {
 
 // ─── Browsing history ────────────────────────────────────────────────────────
 
-/**
- * Parse a History.Bookmark string ("Kind|Key=Value|…", e.g.
- * "Resource|Id=LLS:LEB|…|Reference=bible+leb2.65.3.21"). Never throws.
- */
-export function parseHistoryBookmark(bookmark: string): HistoryBookmark {
+// "Kind|Key=Value|…" → the kind and the fields, values as stored. Never throws.
+function splitBookmark(bookmark: string): { kind: string; values: Map<string, string> } {
   const [kind, ...fields] = bookmark.split("|");
   const values = new Map<string, string>();
   for (const field of fields) {
     const eq = field.indexOf("=");
     if (eq > 0) values.set(field.slice(0, eq), field.slice(eq + 1));
   }
+  return { kind: kind ?? "", values };
+}
+
+/**
+ * Parse a History.Bookmark string ("Kind|Key=Value|…", e.g.
+ * "Resource|Id=LLS:LEB|…|Reference=bible+leb2.65.3.21"). Never throws.
+ */
+export function parseHistoryBookmark(bookmark: string): HistoryBookmark {
+  const { kind, values } = splitBookmark(bookmark);
   return {
-    kind: kind ?? "",
+    kind,
     resourceId: kind === "Resource" ? values.get("Id") || null : null,
     rawReference: values.get("Reference") || null,
   };
@@ -400,5 +407,203 @@ export function getPassageLists(): PassageList[] | null {
     }));
   } finally {
     db.close();
+  }
+}
+
+// ─── Open confirmation ───────────────────────────────────────────────────────
+
+/** History state just before a link is sent. */
+export interface HistorySnapshot {
+  /** Ids of the existing history rows for the same kind of target. */
+  ids: Set<string>;
+  /** Set when Logos is already at the requested location: it then adds no row. */
+  alreadyShowing: HistoryVisit | null;
+}
+
+type Bookmark = ReturnType<typeof splitBookmark>;
+
+const BOOKMARK_KIND: Record<HistoryTarget["kind"], string> = {
+  resource: "Resource",
+  guide: "Guides",
+  factbook: "Factbook",
+  search: "Search",
+};
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+// A stored value equals `wanted` as stored or URL-decoded: Logos encodes some
+// bookmark fields (a guide's Key) and not others (a Factbook ReportId).
+function storedEquals(stored: string | undefined, wanted: string, ignoreCase = false): boolean {
+  if (stored === undefined) return false;
+  const norm = (s: string) => (ignoreCase ? s.trim().toLowerCase() : s);
+  return [stored, safeDecode(stored)].some((s) => norm(s) === norm(wanted));
+}
+
+// Whether raw Logos reference `raw` starts at `reference`. Missing
+// chapter/verse count as 1.
+function startsAt(raw: string | undefined, reference: string): boolean {
+  const at = raw ? parseLogosBibleRef(raw)?.start : undefined;
+  if (!at) return false;
+  try {
+    const ref = parseReference(reference);
+    return logosBookNumber(ref.book) === at.book && ref.chapter === (at.chapter ?? 1) && (ref.verse ?? 1) === (at.verse ?? 1);
+  } catch {
+    return false;
+  }
+}
+
+// Whether a new row with this bookmark shows that the link opened: the same
+// resource, guide template, or kind of search, or any Factbook entry. The
+// exact location is not required, so a value Logos stores differently can
+// cost the "already showing" reply but never a real confirmation.
+function matchesIdentity(b: Bookmark, target: HistoryTarget): boolean {
+  if (b.kind !== BOOKMARK_KIND[target.kind]) return false;
+  switch (target.kind) {
+    case "resource":
+      return b.values.get("Id") === target.resourceId;
+    case "guide":
+      return (b.values.get("TemplateName") ?? "").toLowerCase() === target.guideTitle.replace(/\s+/g, "").toLowerCase();
+    case "factbook":
+      return true;
+    case "search":
+      return b.values.get("SearchKindName") === target.searchKind;
+  }
+}
+
+// Whether a bookmark that matches the target's identity is also the
+// requested location.
+function matchesLocation(b: Bookmark, target: HistoryTarget): boolean {
+  switch (target.kind) {
+    case "resource":
+      return !target.reference || startsAt(b.values.get("Reference"), target.reference);
+    case "guide": {
+      const key = b.values.get("Key");
+      // Sermon Starter Guide ignores its subject and records no Key (PR 1).
+      if (!target.subject || key === undefined) return true;
+      // Key=BibleReference%7cref%3dbible.64.5.14 → "BibleReference|ref=bible.64.5.14".
+      const ref = splitBookmark(safeDecode(key)).values.get("ref");
+      return target.subject.kind === "bible"
+        ? startsAt(ref, target.subject.reference)
+        : storedEquals(ref, target.subject.id);
+    }
+    case "factbook": {
+      const reportId = b.values.get("ReportId");
+      return reportId !== undefined && reportId.startsWith("ref:") && storedEquals(reportId.slice(4), target.kbId);
+    }
+    case "search":
+      return storedEquals(b.values.get("QueryText"), target.query, true);
+  }
+}
+
+// The target's rows (identity match), oldest first. Null when history.db is
+// absent.
+function readTargetRows(target: HistoryTarget): HistoryRow[] | null {
+  const db = openIfPresent(DB_PATHS.history, "History");
+  if (!db) return null;
+  try {
+    // Narrow by the bookmark's leading text; matchesIdentity decides.
+    const head = target.kind === "resource" ? `Resource|Id=${target.resourceId}` : BOOKMARK_KIND[target.kind];
+    const rows = db.prepare(`
+      SELECT Id, Title, Subtitle, LastVisited, Bookmark FROM History
+      WHERE IsDeleted = 0 AND (Bookmark LIKE ? ESCAPE '\\' OR Bookmark = ?)
+      ORDER BY rowid
+    `).all(`${escapeLike(head)}|%`, head) as HistoryRow[];
+    return rows.filter((r) => matchesIdentity(splitBookmark(r.Bookmark), target));
+  } finally {
+    db.close();
+  }
+}
+
+// Logos inserts a history row when it arrives somewhere and only bumps
+// LastVisited on the row it leaves (observed on Logos 54, 2026-10-15), so the
+// most recently inserted row (highest rowid), not the newest LastVisited, is
+// where Logos is now. Null when history.db is absent or empty.
+function getCurrentHistoryRow(): HistoryRow | null {
+  const db = openIfPresent(DB_PATHS.history, "History");
+  if (!db) return null;
+  try {
+    const row = db.prepare(`
+      SELECT Id, Title, Subtitle, LastVisited, Bookmark FROM History
+      WHERE IsDeleted = 0
+      ORDER BY rowid DESC
+      LIMIT 1
+    `).get() as HistoryRow | undefined;
+    return row ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Taken just before launching a link to `target`.
+ *
+ * @param target - What the link will open.
+ * @returns The snapshot, or null when history.db is absent or unreadable (the
+ *   open then can't be confirmed). Never throws.
+ */
+export function snapshotHistory(target: HistoryTarget): HistorySnapshot | null {
+  try {
+    const rows = readTargetRows(target);
+    if (rows === null) return null;
+    const current = getCurrentHistoryRow();
+    const showing =
+      current !== null &&
+      matchesIdentity(splitBookmark(current.Bookmark), target) &&
+      matchesLocation(splitBookmark(current.Bookmark), target);
+    return {
+      ids: new Set(rows.map((r) => r.Id)),
+      alreadyShowing: showing ? historyRowToVisit(current) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Logos records each resource, guide, Factbook entry and search it opens in
+ * history.db (design doc F12); when it is busy a link can do nothing at all
+ * (F20). Polls history.db (read-only) until a row for `target` appears that
+ * is not in `before`. A changed LastVisited on an existing row is ignored:
+ * Logos bumps it on the row the user leaves. If Logos was already at the
+ * location it adds no row, so that case waits only briefly and reports
+ * "already_open". A failed read while polling counts as "not yet".
+ *
+ * @param target - What the link opened.
+ * @param before - The snapshot from `snapshotHistory`; null yields `unavailable`.
+ * @param options.timeoutMs - Defaults to 8000 (2000 when already showing).
+ * @param options.intervalMs - Poll interval; defaults to 500.
+ * @returns The confirmation outcome. Never throws.
+ */
+export async function waitForHistoryVisit(
+  target: HistoryTarget,
+  before: HistorySnapshot | null,
+  options: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<HistoryConfirmation> {
+  if (before === null) return { status: "unavailable" };
+  const timeoutMs = options.timeoutMs ?? (before.alreadyShowing ? 2000 : 8000);
+  const intervalMs = options.intervalMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let rows: HistoryRow[] = [];
+    try {
+      // A failed read while Logos writes (e.g. a transient lock) is "not yet".
+      rows = readTargetRows(target) ?? [];
+    } catch {
+      // retry at the next interval
+    }
+    const fresh = rows.find((r) => !before.ids.has(r.Id));
+    if (fresh) return { status: "confirmed", visit: historyRowToVisit(fresh) };
+    if (Date.now() >= deadline) {
+      return before.alreadyShowing
+        ? { status: "already_open", visit: before.alreadyShowing }
+        : { status: "unconfirmed" };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }

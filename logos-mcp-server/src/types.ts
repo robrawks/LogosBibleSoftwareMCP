@@ -217,6 +217,23 @@ export interface HistoryVisit {
   reference: string | null;
 }
 
+/** What a Logos link was sent to open, for finding its row in history.db. */
+export type HistoryTarget =
+  | { kind: "resource"; resourceId: string; reference?: string }
+  /** `guideTitle` as passed to open_guide, e.g. "Exegetical Guide". */
+  | { kind: "guide"; guideTitle: string; subject?: GuideTarget }
+  | { kind: "factbook"; kbId: string }
+  /** `searchKind` as in the link, e.g. "AllSearch". */
+  | { kind: "search"; query: string; searchKind: string };
+
+/** Whether Logos's history shows that a link actually opened. */
+export type HistoryConfirmation =
+  | { status: "confirmed"; visit: HistoryVisit }
+  /** Logos was already at that location, so it added no history row. */
+  | { status: "already_open"; visit: HistoryVisit }
+  | { status: "unconfirmed" }
+  | { status: "unavailable" };
+
 /** One passage in a saved Logos passage list. */
 export interface PassageListEntry {
   /** Raw Logos reference, e.g. "bible.18.10.21-18.10.22". */
