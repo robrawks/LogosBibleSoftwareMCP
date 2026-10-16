@@ -254,6 +254,31 @@ export function getPreferredBibleResourceId(): string | null {
   }
 }
 
+/**
+ * IDs of every catalog resource whose type matches a get_library_catalog-style
+ * filter (label or raw dotted type), regardless of availability.
+ *
+ * @returns The IDs; an empty set on any failure. Never throws.
+ */
+export function getResourceIdsOfType(type: string): Set<string> {
+  const ids = new Set<string>();
+  try {
+    const db = openDb(DB_PATHS.catalog);
+    try {
+      const patterns = resolveTypeFilter(type);
+      const rows = db
+        .prepare(`SELECT ResourceId FROM Records WHERE ${patterns.map(() => "Type LIKE ? ESCAPE '\\'").join(" OR ")}`)
+        .all(...patterns.map((p) => `%${escapeLike(p)}%`)) as Array<{ ResourceId: string }>;
+      for (const r of rows) ids.add(r.ResourceId);
+    } finally {
+      db.close();
+    }
+  } catch {
+    // catalog.db missing/unreadable
+  }
+  return ids;
+}
+
 // ─── Resource Title Lookup ──────────────────────────────────────────────────
 
 // Best-effort title lookup for a resourceId. Returns null when the catalog

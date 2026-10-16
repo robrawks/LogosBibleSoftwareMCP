@@ -2,8 +2,8 @@ import type Database from "better-sqlite3";
 import { DB_PATHS } from "../config.js";
 import { openDb, hasTable } from "./db.js";
 import { logosRawToHuman } from "./logos-books.js";
-import { getResourceTitles } from "./catalog-reader.js";
-import type { PlanReading, PlanSession, ReadingPlan } from "../types.js";
+import { getResourceTitles, getResourceIdsOfType } from "./catalog-reader.js";
+import type { PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
 
 // Readers for study data Logos keeps locally beyond notes and highlights.
 // Each returns null when its store is absent (older Logos versions), so tools
@@ -214,6 +214,57 @@ export function getReadingPlans(today: string = localDate()): ReadingPlan[] | nu
     return plans.map((p) => ({
       ...p,
       resourceTitle: p.resourceId ? titles.get(p.resourceId) ?? null : null,
+    }));
+  } finally {
+    db.close();
+  }
+}
+
+// ─── Per-book reading progress ───────────────────────────────────────────────
+
+/**
+ * How far the user has read in each book, from Logos's reading tracker.
+ * PercentageRead is stored as a 0-1 fraction and reported as a percent with one
+ * decimal. `limit` applies after sorting and type filtering.
+ *
+ * @returns The entries, or null when the tracker store is absent.
+ */
+export function getResourceReadingProgress(options: {
+  sort?: "recent" | "percent";
+  type?: string;
+  limit?: number;
+} = {}): ResourceReadingProgressEntry[] | null {
+  const db = openIfPresent(DB_PATHS.readingProgress, "ReadingStatus");
+  if (!db) return null;
+  try {
+    // ModifiedDate mixes UTC offsets (-05:00 and -04:00 on the test install),
+    // so "latest" compares instants via julianday(), never the text.
+    const lastRead = hasTable(db, "ResourceReadingProgress")
+      ? `(SELECT p.ModifiedDate FROM ResourceReadingProgress p
+          WHERE p.ResourceId = s.ResourceId AND p.IsDeleted = 0
+          ORDER BY julianday(p.ModifiedDate) DESC LIMIT 1)`
+      : "NULL";
+    const order = options.sort === "percent"
+      ? "s.PercentageRead DESC"
+      : "LastRead IS NULL, julianday(LastRead) DESC";
+    let rows = db.prepare(`
+      SELECT s.ResourceId, s.PercentageRead, ${lastRead} AS LastRead
+      FROM ReadingStatus s
+      ORDER BY ${order}, s.ResourceId
+    `).all() as Array<{ ResourceId: string; PercentageRead: number; LastRead: string | null }>;
+
+    if (options.type) {
+      const ids = getResourceIdsOfType(options.type);
+      rows = rows.filter((r) => ids.has(r.ResourceId));
+    }
+    if (options.limit) rows = rows.slice(0, options.limit);
+
+    const titles = getResourceTitles(rows.map((r) => r.ResourceId));
+    return rows.map((r) => ({
+      resourceId: r.ResourceId,
+      title: titles.get(r.ResourceId) ?? null,
+      percentRead: Math.round(r.PercentageRead * 1000) / 10,
+      lastReadDate: r.LastRead,
     }));
   } finally {
     db.close();

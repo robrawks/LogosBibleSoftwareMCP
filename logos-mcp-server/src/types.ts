@@ -181,6 +181,16 @@ export interface ReadingPlan {
   completed: boolean;
 }
 
+/** How far the user has read in one resource, from Logos's reading tracker. */
+export interface ResourceReadingProgressEntry {
+  resourceId: string;
+  title: string | null;
+  /** Percent of the resource read, 0-100, one decimal. */
+  percentRead: number;
+  /** When the user last read in it (ISO, as Logos stored it). */
+  lastReadDate: string | null;
+}
+
 // ─── Catalog Types ──────────────────────────────────────────────────────────
 
 export interface CatalogResource {

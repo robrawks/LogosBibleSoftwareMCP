@@ -21,7 +21,7 @@ for (const [name, path] of Object.entries(DB_PATHS)) {
   if (!found && !optional) ok = false;
   const icon = found ? "✓" : optional ? "-" : "✗";
   const note = !found && optional ? "  (optional: not on every Logos version)" : "";
-  console.log(`  ${icon} ${name.padEnd(14)} ${path}${note}`);
+  console.log(`  ${icon} ${name.padEnd(16)} ${path}${note}`);
 }
 
 // existsSync alone can't catch an unloadable SQLite driver (e.g. a

@@ -49,7 +49,7 @@ import {
 } from "./services/sqlite-reader.js";
 import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import { getReadingPlans } from "./services/study-data.js";
+import { getReadingPlans, getResourceReadingProgress } from "./services/study-data.js";
 import type { CaptureToolType, GuideTarget, GuideTargetResolution, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
@@ -829,6 +829,37 @@ async function main() {
       lines.push(`**BIBLIA_API_KEY**: ${BIBLIA_API_KEY ? "set" : "NOT SET"}`);
 
       return text(lines.join("\n"));
+    }
+  );
+
+  // ── 25. get_resource_reading_progress ─────────────────────────────────────
+  server.tool(
+    "get_resource_reading_progress",
+    "List how far the user has read in each Logos book — percent read and when they last read in it — from Logos's own reading tracker. Use to see which books the user is working through or has nearly finished. Filter by resource type; sort by most recent or by percent read.",
+    {
+      sort: z.enum(["recent", "percent"]).optional()
+        .describe("Order: 'recent' (most recently read first) or 'percent' (most read first) (default: recent)"),
+      type: z.string().optional()
+        .describe("Filter by resource type — a human label (e.g., 'commentary') or a raw dotted type, as in get_library_catalog"),
+      limit: z.number().optional().describe("Max books to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ sort, type, limit, format }) => {
+      const entries = getResourceReadingProgress({ sort, type, limit: resolveLimit(limit, 20, format) });
+      if (entries === null) {
+        return text("Per-book reading progress is not available on this Logos version (readingprogressmanager.db not found).");
+      }
+      if (format === "json") return json(entries);
+      if (entries.length === 0) {
+        return text(type
+          ? `No reading progress for resources of type '${type}'. Remove the type filter to see all books.`
+          : "No reading progress recorded yet.");
+      }
+      const lines = entries.map((e) => {
+        const last = e.lastReadDate ? ` (last read ${e.lastReadDate.slice(0, 10)})` : "";
+        return `- **${e.title ?? e.resourceId}** — ${e.percentRead}% read${last}`;
+      });
+      return text(`Found ${entries.length} books with reading progress:\n\n${lines.join("\n")}`);
     }
   );
 

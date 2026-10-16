@@ -139,3 +139,22 @@ export const READING_LISTS_SCHEMA = `
     ModifiedDate text
   );
 `;
+
+export const READING_PROGRESS_SCHEMA = `
+  CREATE TABLE ResourceReadingProgress (
+    RowId integer primary key autoincrement,
+    SyncId text not null,
+    ResourceId text not null,
+    Version text not null,
+    IsDeleted bool not null default 0,
+    ModifiedDate text,
+    SyncState int not null default 0,
+    Ranges text not null default '[]'
+  );
+  CREATE TABLE ReadingStatus (
+    RowId integer primary key autoincrement,
+    ResourceId text unique not null,
+    Ranges text not null default '[]',
+    PercentageRead double not null default 0
+  );
+`;
