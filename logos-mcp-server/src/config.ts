@@ -141,7 +141,7 @@ export const DB_PATHS = {
 // their tools fall back or answer "not available". visualMarkup is absent on
 // Logos 54 (highlights moved to notestool.db); AutoComplete.db is built on
 // first run.
-export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete", "readingPlans", "readingLists", "readingProgress", "history"]);
+export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete", "readingPlans", "readingLists", "readingProgress", "history", "passageLists"]);
 
 // ─── Biblia API ──────────────────────────────────────────────────────────────
 

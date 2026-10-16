@@ -49,7 +49,7 @@ import {
 } from "./services/sqlite-reader.js";
 import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import { getReadingPlans, getResourceReadingProgress, getReadingHistory } from "./services/study-data.js";
+import { getReadingPlans, getResourceReadingProgress, getReadingHistory, getPassageLists } from "./services/study-data.js";
 import type { CaptureToolType, GuideTarget, GuideTargetResolution, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
@@ -891,6 +891,29 @@ async function main() {
         return `- ${when} — **${v.title}**${where}`;
       });
       return text(`Found ${visits.length} visits (newest first, times UTC):\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 27. get_passage_lists ─────────────────────────────────────────────────
+  server.tool(
+    "get_passage_lists",
+    "List the user's saved passage lists from Logos — named lists of Bible references (e.g. key passages on a topic). Returns each list's title, date and passages. Use to reuse passages the user has already collected.",
+    { format: formatParam },
+    async ({ format }) => {
+      const lists = getPassageLists();
+      if (lists === null) {
+        return text("Passage lists are not available on this Logos version (PassageList.db not found).");
+      }
+      if (format === "json") return json(lists);
+      if (lists.length === 0) return text("No passage lists found.");
+      const blocks = lists.map((l) => {
+        const date = l.modifiedDate ? ` (modified ${l.modifiedDate.slice(0, 10)})` : "";
+        const passages = l.passages.length > 0
+          ? l.passages.map((p) => `- ${p.reference}`).join("\n")
+          : "- (no passages)";
+        return `**${l.title ?? "(untitled list)"}**${date}\n${passages}`;
+      });
+      return text(`Found ${lists.length} passage lists:\n\n${blocks.join("\n\n")}`);
     }
   );
 

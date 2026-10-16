@@ -328,3 +328,18 @@ export interface HistoryVisit {
   /** Readable form of rawReference, when it is a mapped Bible reference. */
   reference: string | null;
 }
+
+/** One passage in a saved Logos passage list. */
+export interface PassageListEntry {
+  /** Raw Logos reference, e.g. "bible.18.10.21-18.10.22". */
+  rawReference: string;
+  /** Readable form ("Job 10:21-22"), or the raw string when unmapped. */
+  reference: string;
+}
+
+/** A named passage list saved in Logos. */
+export interface PassageList {
+  title: string | null;
+  modifiedDate: string | null;
+  passages: PassageListEntry[];
+}

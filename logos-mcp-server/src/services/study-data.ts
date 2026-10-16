@@ -3,7 +3,8 @@ import { DB_PATHS } from "../config.js";
 import { openDb, hasTable, escapeLike } from "./db.js";
 import { logosRawToHuman } from "./logos-books.js";
 import { getResourceTitles, getResourceIdsOfType } from "./catalog-reader.js";
-import type { HistoryBookmark, HistoryVisit, PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
+import { decodeLogosBlob } from "../utils/clippings.js";
+import type { HistoryBookmark, HistoryVisit, PassageList, PassageListEntry, PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
 
 // Readers for study data Logos keeps locally beyond notes and highlights.
 // Each returns null when its store is absent (older Logos versions), so tools
@@ -345,6 +346,53 @@ export function getReadingHistory(options: {
 
     const rows = db.prepare(sql).all(...params) as HistoryRow[];
     return rows.map(historyRowToVisit);
+  } finally {
+    db.close();
+  }
+}
+
+// ─── Passage lists ───────────────────────────────────────────────────────────
+
+/**
+ * CompressedItems -> passages. The blob is a Logos blob (5-byte header, F17)
+ * holding [{"ref":"bible.18.10.21-18.10.22"}, …]. Empty on any decode or
+ * parse failure; never throws.
+ */
+export function parsePassageItems(blob: Buffer | null): PassageListEntry[] {
+  const decoded = decodeLogosBlob(blob);
+  if (!decoded) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const entries: PassageListEntry[] = [];
+  for (const item of parsed) {
+    const ref = typeof item === "object" && item !== null ? (item as Record<string, unknown>).ref : undefined;
+    if (typeof ref !== "string") continue;
+    entries.push({ rawReference: ref, reference: logosRawToHuman(ref) ?? ref });
+  }
+  return entries;
+}
+
+/** The user's saved passage lists, newest first. Null when PassageList.db is absent. */
+export function getPassageLists(): PassageList[] | null {
+  const db = openIfPresent(DB_PATHS.passageLists, "PassageLists");
+  if (!db) return null;
+  try {
+    const rows = db.prepare(`
+      SELECT Title, ModifiedDate, CompressedItems FROM PassageLists
+      WHERE IsDeleted = 0
+      ORDER BY julianday(ModifiedDate) DESC
+    `).all() as Array<{ Title: string | null; ModifiedDate: string | null; CompressedItems: Buffer | null }>;
+    return rows.map((r) => ({
+      title: r.Title,
+      modifiedDate: r.ModifiedDate,
+      passages: parsePassageItems(r.CompressedItems),
+    }));
   } finally {
     db.close();
   }

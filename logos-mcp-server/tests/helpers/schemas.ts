@@ -172,3 +172,22 @@ export const HISTORY_SCHEMA = `
     SyncRevision integer null default null
   );
 `;
+
+export const PASSAGE_LIST_SCHEMA = `
+  CREATE TABLE PassageLists (
+    Id integer primary key autoincrement,
+    DocumentGuid guid not null,
+    Title text,
+    CompressedItems blob not null,
+    ResourceList text not null default '',
+    SyncState int not null default 0,
+    ModifiedDate text,
+    IsDeleted bool not null default 0,
+    SyncRevision integer
+  );
+`;
+
+// PassageLists.CompressedItems observed on the Logos 54 test install: the
+// 5-byte 0x02 header, then [{"ref":…}] JSON (design doc F17).
+export const OBSERVED_PASSAGE_ITEMS_HEX =
+  "02530000005B7B22726566223A226269626C652E31382E31302E32312D31382E31302E3232227D2C7B22726566223A226269626C652E32312E392E3130227D2C7B22726566223A226269626C652E32332E352E3134227D5D";

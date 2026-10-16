@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { join } from "path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { makeFixtureDirs, createDb, cleanupFixtureDirs, type FixtureDirs } from "./helpers/fixtures.js";
-import { CATALOG_SCHEMA, READING_PROGRESS_SCHEMA, HISTORY_SCHEMA } from "./helpers/schemas.js";
+import { CATALOG_SCHEMA, READING_PROGRESS_SCHEMA, HISTORY_SCHEMA, PASSAGE_LIST_SCHEMA, OBSERVED_PASSAGE_ITEMS_HEX } from "./helpers/schemas.js";
 import { startServer, callTool } from "./helpers/server.js";
 
 describe("study-data tools with every store present", () => {
@@ -28,6 +28,12 @@ describe("study-data tools with every store present", () => {
          ('h1', 'LEB', 'Acts 3:21', '2026-10-15T06:58:20Z', 'Resource|Id=LLS:LEB|Reference=bible+leb2.65.3.21'),
          ('h2', 'Bible Word Study', '', '2026-10-15T06:39:32Z', 'Guides|TemplateName=BibleWordStudy');`
     );
+    createDb(
+      join(dirs.dataDir, "Documents", "PassageList", "PassageList.db"),
+      `${PASSAGE_LIST_SCHEMA}
+       INSERT INTO PassageLists (DocumentGuid, Title, CompressedItems, ModifiedDate) VALUES
+         (X'00', 'Sheol — Key Passages', X'${OBSERVED_PASSAGE_ITEMS_HEX}', '2024-07-20T00:11:38-04:00');`
+    );
     client = await startServer(dirs);
   }, 30_000);
   afterAll(async () => {
@@ -52,6 +58,11 @@ describe("study-data tools with every store present", () => {
     const { text } = await callTool(client, "get_reading_history");
     expect(text).toContain("Found 2 visits (newest first, times UTC)");
     expect(text).toContain("- 2026-10-15 06:58 — **LEB** — Acts 3:21\n- 2026-10-15 06:39 — **Bible Word Study**");
+  });
+
+  it("lists passage lists with readable passages", async () => {
+    const { text } = await callTool(client, "get_passage_lists");
+    expect(text).toContain("**Sheol — Key Passages** (modified 2024-07-20)\n- Job 10:21-22\n- Ecclesiastes 9:10\n- Isaiah 5:14");
   });
 
   it("rejects a malformed since date", async () => {
@@ -81,6 +92,12 @@ describe("study-data tools with no stores", () => {
 
   it("says history is not available, without an error", async () => {
     const result = await callTool(client, "get_reading_history");
+    expect(result.isError).toBe(false);
+    expect(result.text).toContain("not available on this Logos version");
+  });
+
+  it("says passage lists are not available, without an error", async () => {
+    const result = await callTool(client, "get_passage_lists");
     expect(result.isError).toBe(false);
     expect(result.text).toContain("not available on this Logos version");
   });
