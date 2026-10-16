@@ -12,12 +12,12 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 | Requirement | Details |
 |-------------|---------|
-| **macOS or Windows** | macOS uses the `open` command and AppleScript; Windows uses the registered `logos4:` protocol handler and `tasklist` |
-| **Logos Bible Software** | macOS: `/Applications/Logos.app` (tested with v48); Windows: standard install under `%LOCALAPPDATA%\Logos` |
+| **macOS or Windows** | macOS uses the `open` command and AppleScript; Windows uses the registered `logos4:` protocol handler and `tasklist`. Window titles (`get_logos_state`) and `capture_panel_screenshot` are macOS-only |
+| **Logos Bible Software** | macOS: `/Applications/Logos.app` (tested with v48); Windows: standard install under `%LOCALAPPDATA%\Logos` (tested with v54) |
 | **Node.js** | v18+ (v23+ recommended for native `fetch` support) |
 | **Claude Code** | Anthropic's CLI tool ([install guide](https://docs.anthropic.com/en/docs/claude-code)) |
 | **Biblia API Key** | Free key from [bibliaapi.com](https://bibliaapi.com/) |
-| **Xcode Command Line Tools** | `clang` is required to compile the window-capture helper used by `capture_panel_screenshot` (install: `xcode-select --install`) |
+| **Xcode Command Line Tools** | macOS only: `clang` is required to compile the window-capture helper used by `capture_panel_screenshot` (install: `xcode-select --install`) |
 | **macOS permissions** | Screen Recording permission for your terminal app (System Settings → Privacy & Security → Screen Recording) is required for screenshots; Automation/Accessibility permission is prompted on first AppleScript use (detecting whether Logos is running) |
 
 ## Setup
@@ -111,13 +111,13 @@ Tools that open things in the Logos desktop app
 
 | Tool | What it does |
 |------|-------------|
-| `navigate_passage` | Opens a passage in the Logos UI |
-| `open_word_study` | Opens a word study in Logos (Greek/Hebrew/English) |
-| `open_factbook` | Opens a Factbook entry for a person, place, event, or topic |
+| `navigate_passage` | Opens a passage in the Logos UI (in your most-used Bible, or one you name) |
+| `open_word_study` | Opens Bible Word Study (current Logos opens it empty — type the word in; see [Limitations](#limitations)) |
+| `open_factbook` | Opens a Factbook entry for a person, place, event, or topic; lists the choices when a name matches several entries |
 | `open_resource` | Opens a specific commentary, lexicon, or other resource in Logos at a passage |
-| `open_guide` | Opens an Exegetical Guide or Passage Guide for a Bible passage |
-| `get_logos_state` | Checks whether Logos is running and lists its open window titles |
-| `capture_panel_screenshot` | Navigates Logos and captures the visible panel as an image for AI vision |
+| `open_guide` | Opens a Passage Guide or Exegetical Guide for a passage, or a Topic Guide for a topic |
+| `get_logos_state` | Checks whether Logos is running and, on macOS, lists its open window titles |
+| `capture_panel_screenshot` | macOS only: navigates Logos and captures the visible panel as an image for AI vision |
 
 ### Search & Discovery
 Tools for searching Bible text and library resources
@@ -127,7 +127,7 @@ Tools for searching Bible text and library resources
 | `search_bible` | Searches Bible text for words, phrases, or topics |
 | `get_cross_references` | Finds related passages by extracting key terms |
 | `scan_references` | Finds Bible references embedded in arbitrary text |
-| `search_all` | Searches across ALL resources in your library (not just Bible text) |
+| `search_all` | Runs a search across ALL resources in your library (not just Bible text) in Logos's Search panel |
 
 ### Library & Resources
 Tools for browsing your owned library catalog
@@ -143,7 +143,7 @@ Tools for accessing your notes, highlights, favorites, and reading progress
 | Tool | What it does |
 |------|-------------|
 | `get_user_notes` | Reads your study notes from Logos |
-| `get_user_highlights` | Reads your highlights and visual markup |
+| `get_user_highlights` | Reads your highlights: style, resource, the passage covered, and date |
 | `get_clippings` | Reads your saved clippings (excerpt text you clipped from resources) |
 | `get_favorites` | Lists your saved favorites/bookmarks |
 | `get_reading_progress` | Shows your reading plan status |
@@ -200,14 +200,20 @@ LogosBibleSoftwareMCP/
 │   ├── src/
 │   │   ├── index.ts                   # MCP server entry point (24 tools)
 │   │   ├── cli.ts                     # Diagnose CLI entry point
-│   │   ├── config.ts                  # Paths, API config, constants
+│   │   ├── config.ts                  # Paths, link style, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
-│   │   └── services/
-│   │       ├── reference-parser.ts    # Bible reference normalization
-│   │       ├── biblia-api.ts          # Biblia.com REST API client
-│   │       ├── logos-app.ts           # macOS URL scheme / AppleScript
-│   │       ├── sqlite-reader.ts       # Read-only Logos SQLite access
-│   │       └── catalog-reader.ts     # Library catalog search (catalog.db)
+│   │   ├── services/
+│   │   │   ├── reference-parser.ts    # Bible reference normalization
+│   │   │   ├── logos-books.ts         # Logos book numbers and raw references
+│   │   │   ├── biblia-api.ts          # Biblia.com REST API client
+│   │   │   ├── logos-urls.ts          # Links the UI tools send to Logos
+│   │   │   ├── logos-app.ts           # Launching links; is Logos running
+│   │   │   ├── knowledge-lookup.ts    # Factbook names -> knowledge-base IDs
+│   │   │   ├── db.ts                  # Shared read-only SQLite helpers
+│   │   │   ├── sqlite-reader.ts       # Read-only Logos SQLite access
+│   │   │   ├── catalog-reader.ts      # Library catalog search (catalog.db)
+│   │   │   └── screenshot-capture.ts  # macOS window capture
+│   │   └── utils/                     # clippings.ts (blob decoding), strip-markup.ts, tool-text.ts
 │   └── dist/                          # Built output (after npm run build)
 ```
 
@@ -216,7 +222,7 @@ LogosBibleSoftwareMCP/
 The MCP server integrates with Logos through four channels:
 
 - **Biblia API** - Retrieves Bible text and search results via the free REST API from Faithlife (same company as Logos)
-- **URL schemes** - Opens passages, word studies, and factbook entries directly in the Logos app using `logos4:///` URLs (via `open` on macOS, the registered protocol handler on Windows)
+- **URL schemes** - Opens passages, resources, guides and Factbook entries in the Logos app using `logosres:` and `logos4:` links (via `open` on macOS, the registered protocol handler on Windows); see [Logos Link Style](#logos-link-style)
 - **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans) and library catalog directly from the Logos local database files (read-only access, never modifies your data)
 - **Screen capture + vision** - Captures Logos windows so AI can read content displayed in the app UI when direct DB text access is unavailable
 
@@ -247,21 +253,51 @@ Each Logos install uses a randomly named instance directory (e.g. `a3wo155q.w14`
 }
 ```
 
+## Logos Link Style
+
+Logos 54 ignores the `logos4:///…?…` query-string links older versions accepted, so by default the server sends the link formats verified on Logos 54. Set `LOGOS_LINK_STYLE` in the `env` block of `.mcp.json` to choose:
+
+| Value | Links sent | Use when |
+|---|---|---|
+| `current` (default) | `logosres:<resource>;ref=…` for passages and resources; `logos4:Guide;t=<title>;ref=…`, `logos4:Factbook;ref=<id>` and `logos4:Search;kind=AllSearch;q=…;syntax=v2` | Current Logos (verified on Logos 54, Windows) |
+| `legacy` | The `logos4:///Bible/…`, `logos4:///Guide?t=…&ref=…`, `logos4:///Factbook?ref=…`, `logos4:///WordStudy?word=…` and `logos4:///Search?kind=AllSearch&syntax=v2&q=…` URLs used before | Older Logos versions where the current formats open nothing (reported to work on macOS Logos 48) |
+
+```json
+"env": {
+  "BIBLIA_API_KEY": "your_key",
+  "LOGOS_LINK_STYLE": "legacy"
+}
+```
+
+Factbook entries and Topic Guides are opened by knowledge-base ID (e.g. `bk.#Moses`). With `current`, the server looks names up in Logos's own index, `Data/<instance-id>/AutoComplete/AutoComplete.db`, which Logos builds the first time it runs. With `legacy`, Factbook links take the topic name as before, so `open_factbook` refuses a `kb_id`.
+
+### Logos book numbers
+
+Logos numbers Bible books its own way in stored references: Genesis–Malachi are 1–39, the deuterocanon 40–60, and Matthew–Revelation 61–87 (so `bible.66.8.28` is Romans 8:28). Notes and highlights are labeled with that numbering; references in the 40–60 range are shown as the raw Logos string.
+
 ## Troubleshooting
 
 **Quick diagnostic check** - Run `cd logos-mcp-server && npm run diagnose` to verify all data paths, databases, and API configuration before launching Claude Code.
 
 **"BIBLIA_API_KEY is not set"** - Get a free key at [bibliaapi.com](https://bibliaapi.com/) and add it to the `env` block in `.mcp.json`. Bible-text tools need it, but Logos-local tools (notes, highlights, clippings, library catalog) work without it.
 
-**"Database not found"** - Logos isn't installed, or your data is at a non-standard path. Run `find ~/Library/Application\ Support/Logos4 -name "*.db" -maxdepth 5` to locate your databases and set `LOGOS_DATA_DIR`.
+**"Database not found"** - Logos isn't installed, or your data is at a non-standard path. Locate your databases (macOS: `find ~/Library/Application\ Support/Logos4 -name "*.db" -maxdepth 5`; Windows PowerShell: `Get-ChildItem $env:LOCALAPPDATA\Logos -Recurse -Filter *.db`) and set `LOGOS_DATA_DIR`.
 
 **Screenshot tool fails** - Check that your terminal app has Screen Recording permission (System Settings → Privacy & Security → Screen Recording) and that Xcode Command Line Tools are installed (`xcode-select --install`).
 
 **Tools don't appear in `/mcp`** - Restart Claude Code. The MCP server is loaded at startup from `.mcp.json`.
 
-**Logos doesn't open passages** - Make sure Logos Bible Software is running before using `navigate_passage`, `open_word_study`, or `open_factbook`.
+**Logos doesn't open passages** - Make sure Logos Bible Software is running before using the navigation tools. On an older Logos version, try `LOGOS_LINK_STYLE=legacy` (see [Logos Link Style](#logos-link-style)). If Logos is busy (still starting or indexing), a link can start a second `Logos.exe` that opens nothing — wait until Logos responds, end the extra process, and try again.
+
+**"Logos's lookup table was not found"** - `open_factbook` and Topic Guides find entries in `AutoComplete.db`, which Logos builds when it first runs. Open Logos once and let it finish starting, or pass a knowledge-base ID such as `bk.#Moses` directly.
 
 **Book content is encrypted in local resource files** - Use `capture_panel_screenshot` to let AI read what is visible in Logos, and use `get_clippings` for text you've explicitly clipped/highlighted.
+
+## Limitations
+
+- **Word study links** - Logos 54 opens Bible Word Study but ignores the word in the link. Tried: `logos4:Guide;t=Bible%20Word%20Study;ref=…` with `g:agape`, `q=g:agape`, `lemma.lbs/grc/ἀγάπη` and `en:healing`. `open_word_study` therefore opens it empty and asks the user to type the word (`g:`/`h:` prefixes for Greek/Hebrew).
+- **Sermon Starter Guide** - opens via link, but without the requested theme: Logos ignores the subject in the link.
+- **Windows** - `get_logos_state` reports only whether Logos is running, and `capture_panel_screenshot` is unavailable (it relies on a macOS helper).
 
 ## License
 

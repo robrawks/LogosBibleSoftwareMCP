@@ -48,6 +48,11 @@ export interface LogosCommandResult {
   error?: string;
 }
 
+/** What a guide link points at: a Bible reference or a knowledge-base ID. */
+export type GuideTarget =
+  | { kind: "bible"; reference: string }
+  | { kind: "kb"; id: string };
+
 // ─── SQLite / User Data Types ────────────────────────────────────────────────
 
 export interface HighlightResult {
@@ -57,6 +62,10 @@ export interface HighlightResult {
   syncDate: string | null;
   /** Human-readable title of the resource this highlight lives in (best-effort, null when the catalog is unavailable). */
   resourceTitle: string | null;
+  /** Readable Bible reference(s) the highlight covers, "; "-joined (null when unknown). */
+  reference: string | null;
+  /** Raw Logos references behind `reference`, e.g. "bible.66.1.8-66.1.15". */
+  rawReferences: string[];
 }
 
 export interface FavoriteResult {
@@ -153,6 +162,28 @@ export interface ResourceTypeSummary {
   rawType: string;
   count: number;
 }
+
+// ─── Knowledge Base Types ────────────────────────────────────────────────────
+
+export interface KnowledgeEntry {
+  /** Knowledge-base ID, e.g. "bk.#Moses", "bk.%Sabbath", "bk.to:DBT-5333". */
+  id: string;
+  label: string;
+  /** Logos entry kind (IconKinds.IconKind), e.g. "Man", "Topic", "PreachingTheme". */
+  kind: string | null;
+  description: string | null;
+}
+
+export type KnowledgeResolution =
+  | { status: "resolved"; entry: KnowledgeEntry }
+  | { status: "ambiguous"; matches: KnowledgeEntry[] }
+  | { status: "not_found" }
+  | { status: "unavailable"; message: string };
+
+export type GuideTargetResolution =
+  | KnowledgeResolution
+  | { status: "bible"; reference: string }
+  | { status: "invalid"; message: string };
 
 // ─── Biblia Scan / Compare / Find Types ─────────────────────────────────────
 

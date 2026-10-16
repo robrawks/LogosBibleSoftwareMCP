@@ -1,20 +1,7 @@
-import Database from "better-sqlite3";
-import { existsSync } from "fs";
 import { DB_PATHS } from "../config.js";
 import { stripXml } from "../utils/strip-markup.js";
+import { openDb, escapeLike } from "./db.js";
 import type { CatalogResource, ResourceTypeSummary } from "../types.js";
-
-function openDb(path: string): Database.Database {
-  if (!existsSync(path)) {
-    throw new Error(`Database not found: ${path}`);
-  }
-  return new Database(path, { readonly: true, fileMustExist: true });
-}
-
-// Escape LIKE wildcards in user input so "%" and "_" match literally.
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, "\\$&");
-}
 
 // ─── Human-friendly type labels ─────────────────────────────────────────────
 
@@ -235,6 +222,35 @@ export function getResourceTypeSummary(): ResourceTypeSummary[] {
       .sort((a, b) => b.count - a.count);
   } finally {
     db.close();
+  }
+}
+
+// ─── Preferred Bible ────────────────────────────────────────────────────────
+
+/**
+ * Finds the Bible the user opens most (catalog UseCount), for passage links
+ * that must name a Bible resource.
+ *
+ * @returns The resource ID, or null when the catalog is missing or holds no
+ *   available Bible. Never throws.
+ */
+export function getPreferredBibleResourceId(): string | null {
+  try {
+    const db = openDb(DB_PATHS.catalog);
+    try {
+      const row = db.prepare(`
+        SELECT ResourceId FROM Records
+        WHERE Type IN ('text.monograph.bible', 'text.bible')
+          AND Availability >= 1 AND IsDataset = 0
+        ORDER BY UseCount DESC
+        LIMIT 1
+      `).get() as { ResourceId: string } | undefined;
+      return row?.ResourceId ?? null;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null; // missing/unreadable catalog.db, and (by design) any unexpected SQL/schema error
   }
 }
 

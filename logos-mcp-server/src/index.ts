@@ -5,11 +5,37 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { existsSync } from "fs";
 import Database from "better-sqlite3";
-import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
+import {
+  SERVER_NAME,
+  SERVER_VERSION,
+  LOGOS_DATA_DIR,
+  LOGOS_CATALOG_DIR,
+  DB_PATHS,
+  BIBLIA_API_KEY,
+  LOGOS_LINK_STYLE,
+  DEFAULT_BIBLE_RESOURCE_ID,
+  OPTIONAL_DB_NAMES,
+} from "./config.js";
+import {
+  DISPATCHED_NOTE,
+  uiFollowUpHint,
+  logosStateText,
+  formatKnowledgeChoices,
+  windowTitlesAvailable,
+} from "./utils/tool-text.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
-import { navigateToPassage, openWordStudy, openFactbook, openResource, openGuide, searchAll, isLogosRunning } from "./services/logos-app.js";
+import { launchLogosUrl, isLogosRunning } from "./services/logos-app.js";
+import {
+  buildPassageUrl,
+  buildResourceUrl,
+  buildGuideUrl,
+  buildFactbookUrl,
+  buildWordStudyUrl,
+  buildSearchAllUrl,
+} from "./services/logos-urls.js";
+import { resolveKnowledgeId, resolveGuideTarget } from "./services/knowledge-lookup.js";
 import { expandRange, parseReference } from "./services/reference-parser.js";
 import {
   getUserHighlights,
@@ -20,9 +46,9 @@ import {
   getReadingProgress,
   getUserNotes,
 } from "./services/sqlite-reader.js";
-import { searchCatalog, getResourceTypeSummary, typeLabel } from "./services/catalog-reader.js";
+import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import type { CaptureToolType } from "./types.js";
+import type { CaptureToolType, GuideTarget, GuideTargetResolution } from "./types.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -40,6 +66,9 @@ function image(base64: string, description: string) {
     ],
   };
 }
+
+const LOGOS_NOT_RUNNING =
+  "Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.";
 
 // Canonical lowercase form of a Bible reference ("Ro 8:28" -> "romans 8:28",
 // "Genesis 1:1-3" -> "genesis 1:1-3"). Returns null when the input isn't a
@@ -70,16 +99,19 @@ async function main() {
   // ── 1. navigate_passage ──────────────────────────────────────────────────
   server.tool(
     "navigate_passage",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or to position the app before capture_panel_screenshot.",
-    { reference: z.string().describe("Bible reference (e.g., 'Genesis 1:1', 'Romans 8:28-30')") },
-    async ({ reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
-      }
-      const result = await navigateToPassage(reference);
-      return result.success
-        ? text(`Dispatched to Logos: Bible passage ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'bible') to see the results.`)
-        : err(`Failed to open passage: ${result.error}`);
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI, in bible_resource_id if given, otherwise in the user's most-used Bible. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or (macOS) to position the app before capture_panel_screenshot.",
+    {
+      reference: z.string().describe("Bible reference (e.g., 'Genesis 1:1', 'Romans 8:28-30')"),
+      bible_resource_id: z.string().optional()
+        .describe("Resource ID of the Bible to open it in, e.g. 'LLS:LEB' (find IDs with get_library_catalog type 'Bible'). Default: the user's most-used Bible, else LLS:LEB"),
+    },
+    async ({ reference, bible_resource_id }) => {
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const bibleId = bible_resource_id ?? getPreferredBibleResourceId() ?? DEFAULT_BIBLE_RESOURCE_ID;
+      const result = await launchLogosUrl(() => buildPassageUrl(reference, bibleId));
+      if (!result.success) return err(`Failed to open passage: ${result.error}`);
+      const where = LOGOS_LINK_STYLE === "current" ? ` in \`${bibleId}\`` : "";
+      return text(`Dispatched to Logos: Bible passage ${reference}${where}. ${DISPATCHED_NOTE}${uiFollowUpHint("bible")}`);
     }
   );
 
@@ -252,7 +284,7 @@ async function main() {
   // ── 7. get_user_highlights ───────────────────────────────────────────────
   server.tool(
     "get_user_highlights",
-    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns the highlight style and the resource title it lives in.",
+    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns each highlight's style, the resource title it lives in, the Bible passage it covers, and its date.",
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       style_name: z.string().optional().describe("Filter by highlight style name"),
@@ -270,7 +302,12 @@ async function main() {
           ? `No highlights matched ${filter}. Try removing the filters to see all highlights.`
           : "No highlights found — the Logos highlights database appears empty.");
       }
-      const lines = highlights.map((h) => `- **${h.styleName}**: ${h.resourceTitle ?? h.resourceId}`);
+      const lines = highlights.map((h) => {
+        const title = h.resourceTitle ?? h.resourceId;
+        const ref = h.reference ? ` — ${h.reference}` : "";
+        const date = h.syncDate ? ` (${h.syncDate.slice(0, 10)})` : "";
+        return `- **${h.styleName}** — ${title}${ref}${date}`;
+      });
       return text(`Found ${highlights.length} highlights:\n\n${lines.join("\n")}`);
     }
   );
@@ -353,31 +390,56 @@ async function main() {
   // ── 11. open_word_study ──────────────────────────────────────────────────
   server.tool(
     "open_word_study",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a word study in Logos for a Greek, Hebrew, or English word. Use to study a word in its original-language resources, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open Bible Word Study in Logos for a Greek, Hebrew, or English word. Current Logos does not accept the word via link, so it opens empty and the user must type the word — this tool's reply says so. Use to send the user to a word study.",
     { word: z.string().describe("The word to study (e.g., 'agape', 'hesed', 'justification')") },
     async ({ word }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const result = await launchLogosUrl(() => buildWordStudyUrl(word));
+      if (!result.success) return err(`Failed to open word study: ${result.error}`);
+      if (LOGOS_LINK_STYLE === "current") {
+        return text(`Opened Bible Word Study. Logos does not accept the word via link — ask the user to type "${word}" into it (use \`g:\` / \`h:\` for Greek/Hebrew, e.g. \`g:agape\`).`);
       }
-      const result = await openWordStudy(word);
-      return result.success
-        ? text(`Dispatched to Logos: word study for "${word}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'wordstudy') to see the results.`)
-        : err(`Failed to open word study: ${result.error}`);
+      return text(`Dispatched to Logos: word study for "${word}". ${DISPATCHED_NOTE}${uiFollowUpHint("wordstudy")}`);
     }
   );
 
   // ── 12. open_factbook ────────────────────────────────────────────────────
   server.tool(
     "open_factbook",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). Use to look up background information, or to position Logos before capture_panel_screenshot.",
-    { topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover')") },
-    async ({ topic }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). The name is looked up in Logos's own index; when it matches several entries (e.g. Moses the person and Moses the topic) nothing opens and the reply lists them — call again with kb_id.",
+    {
+      topic: z.string().optional().describe("Name to look up (e.g., 'Moses', 'Jerusalem', 'Passover')"),
+      kb_id: z.string().optional()
+        .describe("Knowledge-base ID to open directly (e.g., 'bk.#Moses'), as listed when a topic name is ambiguous. Takes precedence over topic"),
+    },
+    async ({ topic, kb_id }) => {
+      const input = kb_id ?? topic;
+      if (!input) return err("Provide a topic name or a kb_id.");
+      // Legacy Factbook links take a topic name; a knowledge-base ID would open nothing.
+      if (kb_id && LOGOS_LINK_STYLE === "legacy") {
+        return err("Opening a Factbook entry by kb_id needs LOGOS_LINK_STYLE=current. Pass the topic name instead.");
       }
-      const result = await openFactbook(topic);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+
+      if (LOGOS_LINK_STYLE === "legacy") {
+        const result = await launchLogosUrl(() => buildFactbookUrl(input));
+        return result.success
+          ? text(`Dispatched to Logos: Factbook entry for "${input}". ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
+          : err(`Failed to open Factbook: ${result.error}`);
+      }
+
+      const resolution = resolveKnowledgeId(input);
+      if (resolution.status === "unavailable") return err(resolution.message);
+      if (resolution.status === "not_found") {
+        return text(`No Factbook entry named "${input}". Check the spelling or try a broader name; a knowledge-base ID such as "bk.#Moses" can also be passed as kb_id.`);
+      }
+      if (resolution.status === "ambiguous") {
+        return text(`"${input}" matches ${resolution.matches.length} Factbook entries, so nothing was opened. Call open_factbook again with kb_id set to the one you mean:\n\n${formatKnowledgeChoices(resolution.matches)}`);
+      }
+      const { entry } = resolution;
+      const result = await launchLogosUrl(() => buildFactbookUrl(entry.id));
       return result.success
-        ? text(`Dispatched to Logos: Factbook entry for "${topic}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
+        ? text(`Dispatched to Logos: Factbook entry ${entry.label} (\`${entry.id}\`). ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
         : err(`Failed to open Factbook: ${result.error}`);
     }
   );
@@ -448,19 +510,17 @@ async function main() {
   // ── 15. open_resource ─────────────────────────────────────────────────────
   server.tool(
     "open_resource",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or (macOS) to position Logos before capture_panel_screenshot.",
     {
       resource_id: z.string().describe("Resource ID from the library catalog (e.g., 'LLS:CLVNCOMM')"),
       reference: z.string().optional().describe("Bible reference to navigate to within the resource (e.g., 'Romans 12:1')"),
     },
     async ({ resource_id, reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
-      }
-      const result = await openResource(resource_id, reference);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const result = await launchLogosUrl(() => buildResourceUrl(resource_id, reference));
       const refStr = reference ? ` at ${reference}` : "";
       return result.success
-        ? text(`Dispatched to Logos: resource \`${resource_id}\`${refStr}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'resource') to see the results.`)
+        ? text(`Dispatched to Logos: resource \`${resource_id}\`${refStr}. ${DISPATCHED_NOTE}${uiFollowUpHint("resource")}`)
         : err(`Failed to open resource: ${result.error}`);
     }
   );
@@ -468,18 +528,37 @@ async function main() {
   // ── 16. open_guide ────────────────────────────────────────────────────────
   server.tool(
     "open_guide",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open an Exegetical Guide, Passage Guide, or other guide type in Logos for a Bible passage. Use to run a guide on a passage, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a guide in Logos: a Passage Guide or Exegetical Guide for a Bible passage, or a Topic Guide for a topic. A topic name is looked up in Logos's own index; when it matches several entries nothing opens and the reply lists their IDs — call again with one as reference.",
     {
-      guide_type: z.string().describe("Guide template name (e.g., 'Exegetical Guide', 'Passage Guide')"),
-      reference: z.string().describe("Bible reference (e.g., 'Romans 12:1', 'John 3:16')"),
+      guide_type: z.string()
+        .describe("Guide title as shown in Logos: 'Passage Guide', 'Exegetical Guide' or 'Topic Guide' (verified); 'Sermon Starter Guide' opens without its theme (Logos ignores the subject in the link)"),
+      reference: z.string()
+        .describe("Bible reference for Passage/Exegetical guides (e.g., 'Romans 12:1'); for Topic Guide a topic name (e.g., 'Sabbath') or knowledge-base ID (e.g., 'bk.%Sabbath')"),
     },
     async ({ guide_type, reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+
+      // Legacy links only ever took a Bible reference; keep that behavior.
+      const resolution: GuideTargetResolution =
+        LOGOS_LINK_STYLE === "legacy" ? { status: "bible", reference } : resolveGuideTarget(guide_type, reference);
+      if (resolution.status === "unavailable") return err(resolution.message);
+      if (resolution.status === "invalid") return err(`Failed to open guide: ${resolution.message}`);
+      if (resolution.status === "not_found") {
+        return text(`No ${guide_type} subject named "${reference}". Check the spelling, or pass a knowledge-base ID such as "bk.%Sabbath" as reference.`);
       }
-      const result = await openGuide(guide_type, reference);
+      if (resolution.status === "ambiguous") {
+        return text(`"${reference}" matches ${resolution.matches.length} entries, so nothing was opened. Call open_guide again with reference set to the ID you mean:\n\n${formatKnowledgeChoices(resolution.matches)}`);
+      }
+
+      const target: GuideTarget =
+        resolution.status === "bible"
+          ? { kind: "bible", reference: resolution.reference }
+          : { kind: "kb", id: resolution.entry.id };
+      const subject =
+        resolution.status === "bible" ? resolution.reference : `${resolution.entry.label} (\`${resolution.entry.id}\`)`;
+      const result = await launchLogosUrl(() => buildGuideUrl(guide_type, target));
       return result.success
-        ? text(`Dispatched to Logos: ${guide_type} for ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'guide') to see the results.`)
+        ? text(`Dispatched to Logos: ${guide_type} for ${subject}. ${DISPATCHED_NOTE}${uiFollowUpHint("guide")}`)
         : err(`Failed to open guide: ${result.error}`);
     }
   );
@@ -487,17 +566,15 @@ async function main() {
   // ── 17. search_all ────────────────────────────────────────────────────────
   server.tool(
     "search_all",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Search across ALL resources in the Logos library (not just Bible text). Use for broad research, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Run a search across ALL resources in the Logos library (not just Bible text) in Logos's Search panel. Use for broad research.",
     {
       query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
     },
     async ({ query }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
-      }
-      const result = await searchAll(query);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const result = await launchLogosUrl(() => buildSearchAllUrl(query));
       return result.success
-        ? text(`Dispatched to Logos: search for "${query}" across all resources. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'searchall') to see the results.`)
+        ? text(`Dispatched to Logos: search for "${query}" across all resources. ${DISPATCHED_NOTE}${uiFollowUpHint("searchall")}`)
         : err(`Failed to open search: ${result.error}`);
     }
   );
@@ -505,14 +582,14 @@ async function main() {
   // ── 18. get_logos_state ───────────────────────────────────────────────────
   server.tool(
     "get_logos_state",
-    "Check what Logos Bible Software is currently showing: whether the app is running and the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
+    "Check what Logos Bible Software is currently showing: whether the app is running and, on macOS only, the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
     {},
     async () => {
       const running = await isLogosRunning();
       if (!running) return text("Logos is not running.");
-      const titles = await getLogosWindowTitles();
-      const lines = titles.length > 0 ? titles.map((t) => `- ${t}`) : ["- (no named windows found)"];
-      return text(`Logos is running. Window titles:\n${lines.join("\n")}`);
+      // Window titles need the macOS helper; don't try to build it elsewhere.
+      const titles = windowTitlesAvailable() ? await getLogosWindowTitles() : [];
+      return text(logosStateText(titles));
     }
   );
 
@@ -617,7 +694,7 @@ async function main() {
   // ── 23. capture_panel_screenshot ──────────────────────────────────────────
   server.tool(
     "capture_panel_screenshot",
-    "Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
+    "macOS only. Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
     {
       panel_type: z.enum(["bible", "factbook", "wordstudy", "guide", "search", "searchall", "resource"])
         .describe("Type of Logos panel to capture"),
@@ -671,7 +748,7 @@ async function main() {
       lines.push("### Databases\n");
       for (const [name, path] of Object.entries(DB_PATHS)) {
         const found = existsSync(path);
-        const icon = found ? "OK" : "MISSING";
+        const icon = found ? "OK" : OPTIONAL_DB_NAMES.has(name) ? "not present (optional: not on every Logos version)" : "MISSING";
         lines.push(`- **${name}**: ${icon}  \`${path}\``);
       }
 
