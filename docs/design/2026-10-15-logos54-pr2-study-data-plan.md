@@ -2459,7 +2459,7 @@ git commit -m "docs: document study-data tools, json output and the 27-tool coun
 Run: `npm test && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 5: Manual verification on Windows Logos 54 (MANUAL — Will)**
+- [x] **Step 5: Manual verification on Windows Logos 54 (MANUAL — Will)**
 
 Restart the MCP client so it loads `dist/`, then record for the PR:
 
@@ -2507,7 +2507,7 @@ PR 2 of 3 from docs/design/2026-10-15-logos54-fixes-and-study-data-design.md. De
 
 Then `rm pr-body.md`.
 
-> **As built (`3b1dd83`):** diverged — Steps 1–4 done as planned; Step 5 (manual Windows verification) and Step 6 (push, `gh pr create`) not executed; reason: Step 5 is Will's, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`).
+> **As built (`3b1dd83`):** diverged — Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 (push, `gh pr create`) not executed; reason: Step 6 waits on Will's approval, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`).
 
 ## Divergence index
 
@@ -2515,12 +2515,12 @@ Then `rm pr-body.md`.
 
 | Task | SHA | Divergence |
 |---|---|---|
-| 7 | `3b1dd83` | Steps 1–4 done as planned; Step 5 (manual Windows verification) and Step 6 (push, `gh pr create`) not executed; reason: Step 5 is Will's, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`). |
+| 7 | `3b1dd83` | Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 (push, `gh pr create`) not executed; reason: Step 6 waits on Will's approval, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`). |
 
 ## Resume State
 
 - Last completed task: Task 6: `format: "json"` on the existing read tools
-- Commit SHA: 4c5533c
-- Checkboxes: 59/61 ticked
-- Next task: Task 7, Step 5 (manual Windows verification by Will), then Step 6 (push and PR, needs Will's approval)
-- Known-failing tests / caveats: Tasks 1-6 and Task 7 Steps 1-4 done; 276 tests pass, build clean. Branch feature/study-data; per user, PR 1 merged to main and PR 2 lands on main directly (no stacked PR). plan_end_gate.py does not exist in this Node repo; full suite ran per task instead. Minor review findings are deferred in the SDD ledger (.superpowers/sdd/...progress.md); notably Task 2: get_reading_progress JSON mode skips the no-store error that Deviation 2 describes. Run /review-will next.
+- Commit SHA: 40c5080
+- Checkboxes: 60/61 ticked
+- Next task: Task 7, Step 6 (push and PR; needs Will's approval)
+- Known-failing tests / caveats: Tasks 1-6 and Task 7 Steps 1-5 done; 276 tests pass, build clean. Step 5 item 2 (per-book percentages) could not be compared: Logos shows no progress indicator. Branch feature/study-data; per user, PR 1 merged to local main and PR 2 lands on main directly (no stacked PR); nothing pushed. Minor review findings deferred in the SDD ledger; notably get_reading_progress JSON mode skips the no-store error that Deviation 2 describes. Run /review-will next.
