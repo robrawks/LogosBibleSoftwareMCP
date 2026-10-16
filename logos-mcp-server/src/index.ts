@@ -297,10 +297,12 @@ async function main() {
       notebook_title: z.string().optional().describe("Filter by notebook title (partial match)"),
       query: z.string().optional().describe("full-text match on note content"),
       passage: z.string().optional().describe("filter to notes anchored to this Bible passage, e.g. 'Romans 8'"),
-      limit: z.number().optional().describe("Max notes to return (default: 20)"),
+      limit: z.number().optional().describe("Max notes to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ notebook_title, query, passage, limit }) => {
-      const notes = getUserNotes({ notebookTitle: notebook_title, query, passage, limit: limit ?? 20 });
+    async ({ notebook_title, query, passage, limit, format }) => {
+      const notes = getUserNotes({ notebookTitle: notebook_title, query, passage, limit: resolveLimit(limit, 20, format) });
+      if (format === "json") return json(notes);
       if (notes.length === 0) {
         if (notebook_title) {
           return text(`No notes matched notebook '${notebook_title}'. Try get_user_notes without filters to see all notebooks, or check the spelling.`);
@@ -331,14 +333,16 @@ async function main() {
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       style_name: z.string().optional().describe("Filter by highlight style name"),
-      limit: z.number().optional().describe("Max highlights to return (default: 50)"),
+      limit: z.number().optional().describe("Max highlights to return (default: 50; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ resource_id, style_name, limit }) => {
+    async ({ resource_id, style_name, limit, format }) => {
       const highlights = getUserHighlights({
         resourceId: resource_id,
         styleName: style_name,
-        limit: limit ?? 50,
+        limit: resolveLimit(limit, 50, format),
       });
+      if (format === "json") return json(highlights);
       if (highlights.length === 0) {
         const filter = resource_id ? `resource '${resource_id}'` : style_name ? `style '${style_name}'` : null;
         return text(filter
@@ -362,14 +366,16 @@ async function main() {
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       tag: z.string().optional().describe("Filter by clipping tag text (partial match)"),
-      limit: z.number().optional().describe("Max clippings to return (default: 20)"),
+      limit: z.number().optional().describe("Max clippings to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ resource_id, tag, limit }) => {
+    async ({ resource_id, tag, limit, format }) => {
       const clippings = getClippings({
         resourceId: resource_id,
         tag,
-        limit: limit ?? 20,
+        limit: resolveLimit(limit, 20, format),
       });
+      if (format === "json") return json(clippings);
 
       if (clippings.length === 0) {
         const filter = resource_id ? `resource '${resource_id}'` : tag ? `tag '${tag}'` : null;
@@ -396,10 +402,12 @@ async function main() {
     "get_favorites",
     "List the user's saved favorites/bookmarks in Logos Bible Software. Returns each favorite's title and the command it runs.",
     {
-      limit: z.number().optional().describe("Max favorites to return (default: 30)"),
+      limit: z.number().optional().describe("Max favorites to return (default: 30; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ limit }) => {
-      const favorites = getFavorites(limit ?? 30);
+    async ({ limit, format }) => {
+      const favorites = getFavorites(resolveLimit(limit, 30, format));
+      if (format === "json") return json(favorites);
       if (favorites.length === 0) return text("No favorites found — the Logos favorites database appears empty.");
       const lines = favorites.map((f) => `- **${f.title}** → ${f.appCommand}`);
       return text(`Found ${favorites.length} favorites:\n\n${lines.join("\n")}`);
@@ -502,10 +510,15 @@ async function main() {
     "List available study workflow templates and active workflow instances from Logos Bible Software. Workflows provide structured, step-by-step study approaches like 'Inductive Bible Study', 'Lectio Divina', etc. Returns template titles and instance progress.",
     {
       include_instances: z.boolean().optional().describe("Also show active workflow instances (default: true)"),
-      instance_limit: z.number().optional().describe("Max active instances to return (default: 10)"),
+      instance_limit: z.number().optional().describe("Max active instances to return (default: 10; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ include_instances, instance_limit }) => {
+    async ({ include_instances, instance_limit, format }) => {
       const templates = getWorkflowTemplates();
+      if (format === "json") {
+        const instances = include_instances !== false ? getWorkflowInstances(resolveLimit(instance_limit, 10, format)) : [];
+        return json({ templates, instances });
+      }
       const sections: string[] = [];
       if (templates.length > 0) {
         const tLines = templates.map((t) => `- **${t.title}** (${t.externalId})`);
@@ -535,11 +548,13 @@ async function main() {
       type: z.string().optional().describe("Filter by resource type — accepts a human label (e.g., 'commentary') or a raw dotted type (e.g., 'text.monograph.commentary.bible')"),
       query: z.string().optional().describe("Search titles, descriptions, and subjects"),
       author: z.string().optional().describe("Filter by author name"),
-      limit: z.number().optional().describe("Max results to return (default: 25)"),
+      limit: z.number().optional().describe("Max results to return (default: 25; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ type, query, author, limit }) => {
+    async ({ type, query, author, limit, format }) => {
       try {
-        const resources = searchCatalog({ type, query, author, limit: limit ?? 25 });
+        const resources = searchCatalog({ type, query, author, limit: resolveLimit(limit, 25, format) });
+        if (format === "json") return json(resources.map((r) => ({ ...r, typeLabel: typeLabel(r.type) })));
         if (resources.length === 0) {
           if (type) {
             return text(`No resources matched type '${type}'. The type filter accepts either a human label from get_resource_types (e.g. 'Commentary') or a raw dotted type (e.g. 'text.monograph.commentary.bible'). Call get_resource_types to see valid labels, or remove the filter.`);
@@ -728,10 +743,11 @@ async function main() {
   server.tool(
     "get_resource_types",
     "Get a summary of resource types and counts in the user's Logos library. Returns each type's label and count. Useful for choosing a type filter for get_library_catalog.",
-    {},
-    async () => {
+    { format: formatParam },
+    async ({ format }) => {
       try {
         const summary = getResourceTypeSummary();
+        if (format === "json") return json(summary);
         if (summary.length === 0) return text("No resources found in library catalog.");
         const total = summary.reduce((sum, s) => sum + s.count, 0);
         const lines = summary.map((s) => `- **${s.label}**: ${s.count}`);
