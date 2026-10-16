@@ -343,7 +343,7 @@ git commit -m "test: add json output helpers and an stdio harness that runs the 
   - `getReadingPlans(today?: string): ReadingPlan[] | null` — `null` when `ReadingPlan.db` or its `ReadingPlanDocuments` table is absent.
   - Internal helper `openIfPresent(path, table)` reused by Tasks 3–5.
 
-- [ ] **Step 1: Add the fixture schemas**
+- [x] **Step 1: Add the fixture schemas**
 
 Append to `tests/helpers/schemas.ts`:
 
@@ -391,7 +391,7 @@ export const READING_LISTS_SCHEMA = `
 `;
 ```
 
-- [ ] **Step 2: Write the failing unit tests**
+- [x] **Step 2: Write the failing unit tests**
 
 `tests/reading-plans.test.ts`:
 
@@ -595,12 +595,12 @@ describe("getReadingPlans without ReadingPlan.db", () => {
 });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `npx vitest run tests/reading-plans.test.ts`
 Expected: FAIL — `study-data.js` does not exist.
 
-- [ ] **Step 4: Add the path and types**
+- [x] **Step 4: Add the path and types**
 
 In `src/config.ts`, add to `DB_PATHS` after `passageLists`:
 
@@ -652,7 +652,7 @@ export interface ReadingPlan {
 }
 ```
 
-- [ ] **Step 5: Create `src/services/study-data.ts`**
+- [x] **Step 5: Create `src/services/study-data.ts`**
 
 ```typescript
 import type Database from "better-sqlite3";
@@ -870,12 +870,12 @@ export function getReadingPlans(today: string = localDate()): ReadingPlan[] | nu
 }
 ```
 
-- [ ] **Step 6: Run the unit tests**
+- [x] **Step 6: Run the unit tests**
 
 Run: `npx vitest run tests/reading-plans.test.ts`
 Expected: PASS.
 
-- [ ] **Step 7: Write the failing server test**
+- [x] **Step 7: Write the failing server test**
 
 `tests/server-reading-progress.test.ts`:
 
@@ -978,12 +978,12 @@ describe("get_reading_progress with no store", () => {
 });
 ```
 
-- [ ] **Step 8: Run it to verify it fails**
+- [x] **Step 8: Run it to verify it fails**
 
 Run: `npx vitest run tests/server-reading-progress.test.ts`
 Expected: FAIL — the old handler prints only the reading-list summary.
 
-- [ ] **Step 9: Rewrite block 10 in `src/index.ts`**
+- [x] **Step 9: Rewrite block 10 in `src/index.ts`**
 
 Add imports:
 
@@ -1068,17 +1068,19 @@ Replace block 10 with:
   );
 ```
 
-- [ ] **Step 10: Run all tests and the build**
+- [x] **Step 10: Run all tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add src/config.ts src/types.ts src/services/study-data.ts src/index.ts tests/helpers/schemas.ts tests/reading-plans.test.ts tests/server-reading-progress.test.ts
 git commit -m "fix: read reading plans from ReadingPlan.db — next reading and days behind, older reading lists as fallback"
 ```
+
+> **As built (`3bca2e8`):** matches plan.
 
 ---
 
