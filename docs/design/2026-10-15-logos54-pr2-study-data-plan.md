@@ -2469,7 +2469,7 @@ Restart the MCP client so it loads `dist/`, then record for the PR:
 4. `get_passage_lists` — "Sheol" list shows Job 10:21-22, Ecclesiastes 9:10, Isaiah 5:14.
 5. `get_reading_progress format=json` parses as JSON.
 
-- [ ] **Step 6: Push and open the PR (ask Will before pushing)**
+- [x] **Step 6: Push and open the PR (ask Will before pushing)**
 
 ```bash
 git push -u origin feature/study-data
@@ -2507,7 +2507,7 @@ PR 2 of 3 from docs/design/2026-10-15-logos54-fixes-and-study-data-design.md. De
 
 Then `rm pr-body.md`.
 
-> **As built (`3b1dd83`):** diverged — Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 (push, `gh pr create`) not executed; reason: Step 6 waits on Will's approval, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`).
+> **As built (`3b1dd83`):** diverged — Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 done differently: the user has read-only access to robrawks/LogosBibleSoftwareMCP, so branches were pushed to a fork (WillRieske) and PRs opened from it — PR 1 as robrawks/LogosBibleSoftwareMCP#14 and PR 2 as #15, both against `main`; PR 2 includes PR 1's commits because a fork branch cannot be a base; reason: no write access to the upstream repo.
 
 ## Divergence index
 
@@ -2515,12 +2515,12 @@ Then `rm pr-body.md`.
 
 | Task | SHA | Divergence |
 |---|---|---|
-| 7 | `3b1dd83` | Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 (push, `gh pr create`) not executed; reason: Step 6 waits on Will's approval, and the user ruled that PR 1 is merged to `main` and PR 2 is worked on `main` directly (no stacked PR against `fix/logos54-compat`). |
+| 7 | `3b1dd83` | Steps 1–4 done as planned; Step 5 verified 2026-10-15 on Windows Logos 54 for items 1, 3, 4 and 5 (item 1 next readings match the plan values; item 3 matches the top five rows of the History panel by screen capture; item 4 Sheol list matches; item 5 JSON parses) but not item 2 (Logos shows no per-book progress indicator in the UI to compare, so the percentages are unconfirmed); Step 6 done differently: the user has read-only access to robrawks/LogosBibleSoftwareMCP, so branches were pushed to a fork (WillRieske) and PRs opened from it — PR 1 as robrawks/LogosBibleSoftwareMCP#14 and PR 2 as #15, both against `main`; PR 2 includes PR 1's commits because a fork branch cannot be a base; reason: no write access to the upstream repo. |
 
 ## Resume State
 
-- Last completed task: Task 6: `format: "json"` on the existing read tools
-- Commit SHA: 40c5080
-- Checkboxes: 60/61 ticked
-- Next task: Task 7, Step 6 (push and PR; needs Will's approval)
-- Known-failing tests / caveats: Tasks 1-6 and Task 7 Steps 1-5 done; 276 tests pass, build clean. Step 5 item 2 (per-book percentages) could not be compared: Logos shows no progress indicator. Branch feature/study-data; per user, PR 1 merged to local main and PR 2 lands on main directly (no stacked PR); nothing pushed. Minor review findings deferred in the SDD ledger; notably get_reading_progress JSON mode skips the no-store error that Deviation 2 describes. Run /review-will next.
+- Last completed task: Task 7: Documentation, verification and the pull request
+- Commit SHA: 886c939
+- Checkboxes: 61/61 ticked
+- Next task: none — plan complete; run /review-will on PR 2
+- Known-failing tests / caveats: All tasks and steps done; 276 tests pass, build clean. PR 1 is robrawks/LogosBibleSoftwareMCP#14 and PR 2 is #15 (both from the WillRieske fork, base main). Step 5 item 2 (per-book percentages) was not comparable in the Logos UI. Minor review findings deferred in the SDD ledger; notably get_reading_progress JSON mode skips the no-store error that Deviation 2 describes.
