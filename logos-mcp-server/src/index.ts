@@ -49,7 +49,7 @@ import {
 } from "./services/sqlite-reader.js";
 import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import { getReadingPlans, getResourceReadingProgress } from "./services/study-data.js";
+import { getReadingPlans, getResourceReadingProgress, getReadingHistory } from "./services/study-data.js";
 import type { CaptureToolType, GuideTarget, GuideTargetResolution, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
@@ -860,6 +860,37 @@ async function main() {
         return `- **${e.title ?? e.resourceId}** — ${e.percentRead}% read${last}`;
       });
       return text(`Found ${entries.length} books with reading progress:\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 26. get_reading_history ───────────────────────────────────────────────
+  server.tool(
+    "get_reading_history",
+    "Read the user's Logos browsing history — the books, Bible passages, guides and searches they opened, newest first, with when and where. This is the user's own usage history; use it to see what they have been studying recently or to pick up where they left off.",
+    {
+      since: z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Use an ISO date such as 2026-10-01").optional()
+        .describe("Only visits on or after this ISO date/time, UTC (e.g., '2026-10-01')"),
+      resource_id: z.string().optional().describe("Only visits to this resource (e.g., 'LLS:LEB')"),
+      limit: z.number().optional().describe("Max visits to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ since, resource_id, limit, format }) => {
+      const visits = getReadingHistory({ since, resourceId: resource_id, limit: resolveLimit(limit, 20, format) });
+      if (visits === null) {
+        return text("Reading history is not available on this Logos version (history.db not found).");
+      }
+      if (format === "json") return json(visits);
+      if (visits.length === 0) {
+        return text(since || resource_id
+          ? "No history matched those filters. Try removing since or resource_id."
+          : "No history recorded yet.");
+      }
+      const lines = visits.map((v) => {
+        const when = v.lastVisited.replace("T", " ").slice(0, 16);
+        const where = v.subtitle ? ` — ${v.subtitle}` : "";
+        return `- ${when} — **${v.title}**${where}`;
+      });
+      return text(`Found ${visits.length} visits (newest first, times UTC):\n\n${lines.join("\n")}`);
     }
   );
 

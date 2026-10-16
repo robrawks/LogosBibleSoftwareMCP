@@ -1,9 +1,9 @@
 import type Database from "better-sqlite3";
 import { DB_PATHS } from "../config.js";
-import { openDb, hasTable } from "./db.js";
+import { openDb, hasTable, escapeLike } from "./db.js";
 import { logosRawToHuman } from "./logos-books.js";
 import { getResourceTitles, getResourceIdsOfType } from "./catalog-reader.js";
-import type { PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
+import type { HistoryBookmark, HistoryVisit, PlanReading, PlanSession, ReadingPlan, ResourceReadingProgressEntry } from "../types.js";
 
 // Readers for study data Logos keeps locally beyond notes and highlights.
 // Each returns null when its store is absent (older Logos versions), so tools
@@ -266,6 +266,85 @@ export function getResourceReadingProgress(options: {
       percentRead: Math.round(r.PercentageRead * 1000) / 10,
       lastReadDate: r.LastRead,
     }));
+  } finally {
+    db.close();
+  }
+}
+
+// ─── Browsing history ────────────────────────────────────────────────────────
+
+/**
+ * Parse a History.Bookmark string ("Kind|Key=Value|…", e.g.
+ * "Resource|Id=LLS:LEB|…|Reference=bible+leb2.65.3.21"). Never throws.
+ */
+export function parseHistoryBookmark(bookmark: string): HistoryBookmark {
+  const [kind, ...fields] = bookmark.split("|");
+  const values = new Map<string, string>();
+  for (const field of fields) {
+    const eq = field.indexOf("=");
+    if (eq > 0) values.set(field.slice(0, eq), field.slice(eq + 1));
+  }
+  return {
+    kind: kind ?? "",
+    resourceId: kind === "Resource" ? values.get("Id") || null : null,
+    rawReference: values.get("Reference") || null,
+  };
+}
+
+interface HistoryRow {
+  Id: string;
+  Title: string;
+  Subtitle: string;
+  LastVisited: string;
+  Bookmark: string;
+}
+
+function historyRowToVisit(r: HistoryRow): HistoryVisit {
+  const bookmark = parseHistoryBookmark(r.Bookmark);
+  return {
+    id: r.Id,
+    title: r.Title,
+    subtitle: r.Subtitle || null,
+    lastVisited: r.LastVisited,
+    kind: bookmark.kind,
+    resourceId: bookmark.resourceId,
+    rawReference: bookmark.rawReference,
+    reference: bookmark.rawReference ? logosRawToHuman(bookmark.rawReference) : null,
+  };
+}
+
+/**
+ * The user's Logos browsing history, newest first. `since` is compared with
+ * the stored UTC ISO LastVisited, so a date ("2026-10-01") or a full
+ * timestamp both work. Null when history.db is absent.
+ */
+export function getReadingHistory(options: {
+  since?: string;
+  resourceId?: string;
+  limit?: number;
+} = {}): HistoryVisit[] | null {
+  const db = openIfPresent(DB_PATHS.history, "History");
+  if (!db) return null;
+  try {
+    let sql = "SELECT Id, Title, Subtitle, LastVisited, Bookmark FROM History WHERE IsDeleted = 0";
+    const params: unknown[] = [];
+    if (options.since) {
+      sql += " AND LastVisited >= ?";
+      params.push(options.since);
+    }
+    if (options.resourceId) {
+      // Exact ID match: "Resource|Id=LLS:LEB|…" but not "…Id=LLS:LEB2|…".
+      sql += " AND (Bookmark LIKE ? ESCAPE '\\' OR Bookmark = ?)";
+      params.push(`Resource|Id=${escapeLike(options.resourceId)}|%`, `Resource|Id=${options.resourceId}`);
+    }
+    sql += " ORDER BY LastVisited DESC";
+    if (options.limit) {
+      sql += " LIMIT ?";
+      params.push(options.limit);
+    }
+
+    const rows = db.prepare(sql).all(...params) as HistoryRow[];
+    return rows.map(historyRowToVisit);
   } finally {
     db.close();
   }

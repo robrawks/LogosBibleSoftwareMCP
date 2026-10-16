@@ -158,3 +158,17 @@ export const READING_PROGRESS_SCHEMA = `
     PercentageRead double not null default 0
   );
 `;
+
+export const HISTORY_SCHEMA = `
+  CREATE TABLE History (
+    Id text primary key,
+    Title text not null,
+    Subtitle text not null,
+    LastVisited text not null,
+    Bookmark text not null,
+    ParentId text,
+    SyncState int not null default 1,
+    IsDeleted bool not null default 0,
+    SyncRevision integer null default null
+  );
+`;
