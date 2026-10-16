@@ -252,6 +252,26 @@ export interface ResourceTypeSummary {
   count: number;
 }
 
+export interface PassageResource {
+  resourceId: string;
+  title: string;
+  abbreviatedTitle: string | null;
+  /** Authors joined with "; " (null when the catalog lists none). */
+  authors: string | null;
+  series: string | null;
+  /** Human type label, e.g. "Commentary", "Study Bible". */
+  kind: string;
+  /** Raw dotted catalog type. */
+  type: string;
+  /** commentary-purpose trait, e.g. "exegetical". */
+  purpose: string | null;
+  /** era trait, e.g. "contemporary". */
+  era: string | null;
+  communityRating: number | null;
+  /** How often the user opened it; used for sorting, shown only in JSON. */
+  useCount: number;
+}
+
 // ─── Knowledge Base Types ────────────────────────────────────────────────────
 
 export interface KnowledgeEntry {

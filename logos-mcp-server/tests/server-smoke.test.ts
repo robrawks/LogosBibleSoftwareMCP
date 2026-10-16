@@ -33,7 +33,7 @@ describe("server smoke test", () => {
 
   it("registers every tool", async () => {
     const { tools } = await client.listTools();
-    expect(tools).toHaveLength(27);
+    expect(tools).toHaveLength(28);
   });
 
   it("shows a highlight's verse and date", async () => {

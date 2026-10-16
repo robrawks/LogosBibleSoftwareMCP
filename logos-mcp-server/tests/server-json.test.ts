@@ -18,6 +18,7 @@ const READ_TOOLS = [
   "get_resource_reading_progress",
   "get_reading_history",
   "get_passage_lists",
+  "find_passage_resources",
 ];
 
 describe("JSON output", () => {

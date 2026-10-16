@@ -1,7 +1,10 @@
 import { DB_PATHS } from "../config.js";
 import { stripXml } from "../utils/strip-markup.js";
 import { openDb, escapeLike } from "./db.js";
-import type { CatalogResource, ResourceTypeSummary } from "../types.js";
+import { statSync } from "fs";
+import { parseReference } from "./reference-parser.js";
+import { logosBookNumber, parseReferenceSupersets, rangeContains, type LogosBibleRange } from "./logos-books.js";
+import type { CatalogResource, ResourceTypeSummary, PassageResource } from "../types.js";
 
 // ─── Human-friendly type labels ─────────────────────────────────────────────
 
@@ -330,4 +333,147 @@ export function parseTraits(traits: string): Map<string, string> {
     if (!map.has(key)) map.set(key, entry.slice(colon + 1));
   }
   return map;
+}
+
+// ─── Passage coverage ───────────────────────────────────────────────────────
+
+/** Resource kinds `findPassageResources` can filter by. */
+export type PassageResourceKind = "commentary" | "study bible" | "cross-references" | "bible" | "harmony";
+
+// find_passage_resources kinds -> the TYPE_LABELS label that carries them.
+/** Maps each passage-resource kind to the catalog type label that carries it. */
+export const PASSAGE_RESOURCE_KINDS: Record<PassageResourceKind, string> = {
+  commentary: "Commentary",
+  "study bible": "Study Bible",
+  "cross-references": "Cross-References",
+  bible: "Bible",
+  harmony: "Harmony",
+};
+
+interface CoverageRecord {
+  resource: PassageResource;
+  ranges: LogosBibleRange[];
+}
+
+// Parsed coverage of every owned resource, kept until catalog.db changes.
+let coverageCache: { path: string; version: string; records: CoverageRecord[] } | null = null;
+
+// The catalog's on-disk version. Logos writes catalog.db in WAL mode, so a
+// committed change can sit in catalog.db-wal without touching the main file;
+// both files' mtime and size count. (PRAGMA data_version only compares within
+// one connection, and each call opens a new one.)
+function catalogVersion(path: string): string {
+  const part = (p: string) => {
+    try {
+      const s = statSync(p);
+      return `${s.mtimeMs}:${s.size}`;
+    } catch {
+      return "-"; // no -wal file (checkpointed, or not in WAL mode)
+    }
+  };
+  return `${part(path)}|${part(`${path}-wal`)}`;
+}
+
+function emptyToNull(s: string | null): string | null {
+  return s && s.length > 0 ? s : null;
+}
+
+function loadCoverageRecords(): CoverageRecord[] {
+  const path = DB_PATHS.catalog;
+  const db = openDb(path); // throws "Database not found" when missing
+  try {
+    const version = catalogVersion(path);
+    if (coverageCache && coverageCache.path === path && coverageCache.version === version) {
+      return coverageCache.records;
+    }
+    const rows = db.prepare(`
+      SELECT ResourceId, Title, AbbreviatedTitle, Type, Authors, Series, Traits,
+             CommunityRating, UseCount, ReferenceSupersets
+      FROM Records
+      WHERE Availability >= 1 AND IsDataset = 0 AND ReferenceSupersets <> ''
+    `).all() as Array<{
+      ResourceId: string;
+      Title: string;
+      AbbreviatedTitle: string | null;
+      Type: string;
+      Authors: string | null;
+      Series: string | null;
+      Traits: string | null;
+      CommunityRating: number | null;
+      UseCount: number;
+      ReferenceSupersets: string;
+    }>;
+
+    const records: CoverageRecord[] = [];
+    for (const r of rows) {
+      const ranges = parseReferenceSupersets(r.ReferenceSupersets);
+      if (ranges.length === 0) continue;
+      const traits = parseTraits(r.Traits ?? "");
+      const authors = (r.Authors ?? "").split("\t").filter((a) => a.length > 0);
+      records.push({
+        ranges,
+        resource: {
+          resourceId: r.ResourceId,
+          title: r.Title,
+          abbreviatedTitle: emptyToNull(r.AbbreviatedTitle),
+          authors: authors.length > 0 ? authors.join("; ") : null,
+          series: emptyToNull(r.Series),
+          kind: typeLabel(r.Type),
+          type: r.Type,
+          purpose: traits.get("commentary-purpose") ?? null,
+          era: traits.get("era") ?? null,
+          communityRating: r.CommunityRating,
+          useCount: r.UseCount,
+        },
+      });
+    }
+    coverageCache = { path, version, records };
+    return records;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Owned resources whose catalog coverage includes the passage's first verse.
+ * Commentaries first, then most-used, then highest community rating. The
+ * order differs from the user's Passage Guide prioritization, which Logos
+ * does not store locally (design doc F18).
+ *
+ * @param options.passage - The passage reference, e.g. "John 5:1".
+ * @param options.kind - Restrict to one resource kind.
+ * @param options.purpose - Restrict commentaries to one commentary purpose.
+ * @param options.limit - Maximum number of results.
+ * @returns The matching resources in the order above.
+ * @throws Error for an unparseable passage or a missing catalog.
+ */
+export function findPassageResources(options: {
+  passage: string;
+  kind?: PassageResourceKind;
+  purpose?: string;
+  limit?: number;
+}): PassageResource[] {
+  const ref = parseReference(options.passage);
+  const book = logosBookNumber(ref.book);
+  if (book === null) throw new Error(`No Logos book number for "${ref.book}"`);
+  const point = { book, chapter: ref.chapter, verse: ref.verse };
+  const rawTypes = options.kind ? resolveTypeFilter(PASSAGE_RESOURCE_KINDS[options.kind]) : null;
+
+  const matches = loadCoverageRecords()
+    .filter((r) => r.ranges.some((range) => rangeContains(range, point)))
+    .map((r) => r.resource)
+    .filter((r) => rawTypes === null || rawTypes.includes(r.type))
+    .filter((r) => !options.purpose || r.purpose === options.purpose);
+
+  matches.sort((a, b) => {
+    const aCommentary = a.kind === "Commentary" ? 0 : 1;
+    const bCommentary = b.kind === "Commentary" ? 0 : 1;
+    if (aCommentary !== bCommentary) return aCommentary - bCommentary;
+    if (a.useCount !== b.useCount) return b.useCount - a.useCount;
+    const aRating = a.communityRating ?? -1;
+    const bRating = b.communityRating ?? -1;
+    if (aRating !== bRating) return bRating - aRating;
+    return a.title.localeCompare(b.title);
+  });
+  return matches.slice(0, options.limit ?? 25);
 }

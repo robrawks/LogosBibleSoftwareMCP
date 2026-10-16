@@ -47,10 +47,10 @@ import {
   getReadingProgress,
   getUserNotes,
 } from "./services/sqlite-reader.js";
-import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
+import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId, findPassageResources } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
 import { getReadingPlans, getResourceReadingProgress, getReadingHistory, getPassageLists } from "./services/study-data.js";
-import type { CaptureToolType, GuideTarget, GuideTargetResolution, ReadingPlan, ReadingProgress } from "./types.js";
+import type { CaptureToolType, GuideTarget, GuideTargetResolution, PassageResource, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -930,6 +930,47 @@ async function main() {
         return `**${l.title ?? "(untitled list)"}**${date}\n${passages}`;
       });
       return text(`Found ${lists.length} passage lists:\n\n${blocks.join("\n\n")}`);
+    }
+  );
+
+  // ── 28. find_passage_resources ────────────────────────────────────────────
+  server.tool(
+    "find_passage_resources",
+    "Find which resources in the user's Logos library cover a Bible passage — commentaries, study Bibles, cross-reference works, Bibles, harmonies — from the library catalog's coverage data. Returns each resource's title, author, series, kind, commentary purpose and resource ID; commentaries first, then the ones the user opens most. Use with open_resource to open the chosen books at the passage.",
+    {
+      passage: z.string().describe("Bible reference (e.g., 'John 5:14', 'Romans 8')"),
+      kind: z.enum(["commentary", "study bible", "cross-references", "bible", "harmony"]).optional()
+        .describe("Only resources of this kind (default: all kinds)"),
+      purpose: z.enum(["exegetical", "expositional", "application", "devotional", "concise"]).optional()
+        .describe("Only commentaries written for this purpose (default: any)"),
+      limit: z.number().optional().describe("Max resources to return (default: 25; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ passage, kind, purpose, limit, format }) => {
+      let resources: PassageResource[];
+      try {
+        resources = findPassageResources({ passage, kind, purpose, limit: resolveLimit(limit, 25, format) });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return err(msg.startsWith("Database not found") ? `Library catalog error: ${msg}` : msg);
+      }
+      if (format === "json") return json(resources);
+      if (resources.length === 0) {
+        const filters = [kind, purpose].filter(Boolean).join(", ");
+        return text(filters
+          ? `No ${filters} resources in the user's library cover ${passage}. Try removing the kind/purpose filter.`
+          : `No resources in the user's library cover ${passage}.`);
+      }
+      const lines = resources.map((r) => {
+        const name = r.abbreviatedTitle ? `**${r.abbreviatedTitle}** — ${r.title}` : `**${r.title}**`;
+        const by = r.authors ? ` — ${r.authors}` : "";
+        const series = r.series ? ` (${r.series})` : "";
+        const details = [r.kind, r.purpose, r.era, r.communityRating !== null ? `rated ${r.communityRating}` : null]
+          .filter(Boolean)
+          .join(" · ");
+        return `- ${name}${by}${series}\n  ${details} | ID: \`${r.resourceId}\``;
+      });
+      return text(`Found ${resources.length} resources covering ${passage}:\n\n${lines.join("\n\n")}\n\nOpen one at the passage with open_resource (resource_id, reference).`);
     }
   );
 
