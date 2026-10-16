@@ -269,7 +269,7 @@ Logos 54 ignores the `logos4:///…?…` query-string links older versions accep
 }
 ```
 
-Factbook entries and Topic Guides are opened by knowledge-base ID (e.g. `bk.#Moses`). With `current`, the server looks names up in Logos's own index, `Data/<instance-id>/AutoComplete/AutoComplete.db`, which Logos builds the first time it runs.
+Factbook entries and Topic Guides are opened by knowledge-base ID (e.g. `bk.#Moses`). With `current`, the server looks names up in Logos's own index, `Data/<instance-id>/AutoComplete/AutoComplete.db`, which Logos builds the first time it runs. With `legacy`, Factbook links take the topic name as before, so `open_factbook` refuses a `kb_id`.
 
 ### Logos book numbers
 

@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { uiFollowUpHint, logosStateText, formatKnowledgeChoices } from "../src/utils/tool-text.js";
+import {
+  uiFollowUpHint,
+  logosStateText,
+  formatKnowledgeChoices,
+  windowTitlesAvailable,
+} from "../src/utils/tool-text.js";
+
+describe("windowTitlesAvailable", () => {
+  it("is true only on macOS", () => {
+    expect(windowTitlesAvailable("darwin")).toBe(true);
+    expect(windowTitlesAvailable("win32")).toBe(false);
+    expect(windowTitlesAvailable("linux")).toBe(false);
+  });
+});
 
 describe("uiFollowUpHint", () => {
   it("suggests confirming with window titles or a screenshot on macOS", () => {

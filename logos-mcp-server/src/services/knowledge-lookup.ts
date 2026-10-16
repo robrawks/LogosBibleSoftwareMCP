@@ -62,7 +62,7 @@ export function lookupKnowledgeIds(name: string): KnowledgeEntry[] {
     const trimmed = name.trim();
     let rows = db.prepare(labelQuery("l.LabelText = ? COLLATE NOCASE")).all(trimmed) as LabelRow[];
     // The fold-case fallback runs only after a NOCASE miss, so an ASCII-case
-    // match masks an accent-case sibling (e.g. "e" hit hides "�").
+    // match masks an accent-case sibling (e.g. "Émile" hits "ÉMILE" and hides "émile").
     if (rows.length === 0 && /[^\x00-\x7F]/.test(trimmed)) {
       // Registered on this read-only connection only; nothing is written.
       db.function("fold_case", { deterministic: true }, (s: unknown) =>

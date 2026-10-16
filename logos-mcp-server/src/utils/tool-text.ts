@@ -4,6 +4,16 @@ import type { CaptureToolType, KnowledgeEntry } from "../types.js";
 // F15). Elsewhere there is nothing to confirm with, so messages must not
 // suggest those tools.
 
+/**
+ * Whether window titles (and so confirming or capturing the UI) are available.
+ *
+ * @param platform - Platform to decide for; defaults to the running one.
+ * @returns True only on macOS.
+ */
+export function windowTitlesAvailable(platform: NodeJS.Platform = process.platform): boolean {
+  return platform === "darwin";
+}
+
 /** Appended to every UI-dispatch result so the assistant knows nothing was returned. */
 export const DISPATCHED_NOTE = "This only opens the Logos UI on the user's screen — no data is returned to you.";
 
@@ -18,7 +28,7 @@ export function uiFollowUpHint(
   panelType: CaptureToolType,
   platform: NodeJS.Platform = process.platform
 ): string {
-  if (platform !== "darwin") return "";
+  if (!windowTitlesAvailable(platform)) return "";
   return ` Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: '${panelType}') to see the results.`;
 }
 
@@ -33,7 +43,7 @@ export function logosStateText(
   titles: string[],
   platform: NodeJS.Platform = process.platform
 ): string {
-  if (platform !== "darwin") {
+  if (!windowTitlesAvailable(platform)) {
     const where = platform === "win32" ? "Windows" : "this platform";
     return `Logos is running. Window titles are not available on ${where}.`;
   }

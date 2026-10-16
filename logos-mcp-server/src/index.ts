@@ -16,7 +16,13 @@ import {
   DEFAULT_BIBLE_RESOURCE_ID,
   OPTIONAL_DB_NAMES,
 } from "./config.js";
-import { DISPATCHED_NOTE, uiFollowUpHint, logosStateText, formatKnowledgeChoices } from "./utils/tool-text.js";
+import {
+  DISPATCHED_NOTE,
+  uiFollowUpHint,
+  logosStateText,
+  formatKnowledgeChoices,
+  windowTitlesAvailable,
+} from "./utils/tool-text.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
@@ -409,6 +415,10 @@ async function main() {
     async ({ topic, kb_id }) => {
       const input = kb_id ?? topic;
       if (!input) return err("Provide a topic name or a kb_id.");
+      // Legacy Factbook links take a topic name; a knowledge-base ID would open nothing.
+      if (kb_id && LOGOS_LINK_STYLE === "legacy") {
+        return err("Opening a Factbook entry by kb_id needs LOGOS_LINK_STYLE=current. Pass the topic name instead.");
+      }
       if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
 
       if (LOGOS_LINK_STYLE === "legacy") {
@@ -578,7 +588,7 @@ async function main() {
       const running = await isLogosRunning();
       if (!running) return text("Logos is not running.");
       // Window titles need the macOS helper; don't try to build it elsewhere.
-      const titles = process.platform === "darwin" ? await getLogosWindowTitles() : [];
+      const titles = windowTitlesAvailable() ? await getLogosWindowTitles() : [];
       return text(logosStateText(titles));
     }
   );
