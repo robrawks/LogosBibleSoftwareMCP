@@ -1,6 +1,6 @@
 ---
 name: tool-tester
-description: Systematically test all 27 Logos MCP tools with natural Bible study questions and produce a pass/fail/skip report
+description: Systematically test all 28 Logos MCP tools with natural Bible study questions and produce a pass/fail/skip report
 model: sonnet
 ---
 
@@ -8,7 +8,7 @@ model: sonnet
 
 ## Purpose
 
-Systematically test all 27 Logos MCP tools by asking natural Bible study questions. Produces a pass/fail/skip report.
+Systematically test all 28 Logos MCP tools by asking natural Bible study questions. Produces a pass/fail/skip report.
 
 ---
 
@@ -32,10 +32,10 @@ Record which databases are present. If a database is missing, tools that depend 
 | readingPlans | `get_reading_progress` (current Logos) |
 | readingLists | `get_reading_progress` (older Logos; empty on current installs is normal) |
 | readingProgress | `get_resource_reading_progress` |
-| history | `get_reading_history` |
+| history | `get_reading_history`, `open_resource` / `navigate_passage` / `open_guide` / `open_factbook` / `search_all` (confirmation) |
 | passageLists | `get_passage_lists` |
 | workflows | `get_study_workflows` |
-| catalog | `get_library_catalog`, `get_resource_types`, `navigate_passage` (picks the Bible) |
+| catalog | `get_library_catalog`, `get_resource_types`, `navigate_passage` (picks the Bible), `find_passage_resources` |
 | autoComplete | `open_factbook`, `open_guide` (Topic Guide) |
 | guides | (no direct tool, but used by open_guide) |
 
@@ -52,7 +52,7 @@ Call each tool one at a time. Observe the result. Record pass/fail/skip.
 | 3 | "Show Romans 8:28 with surrounding context" | `get_passage_context` | Returns expanded passage |
 | 4 | "Search for 'justification by faith'" | `search_bible` | Returns search results |
 | 5 | "What passages relate to John 3:16?" | `get_cross_references` | Returns related passages |
-| 6 | "Open Romans 12:1 in Logos" | `navigate_passage` | Returns success message |
+| 6 | "Open Romans 12:1 in Logos" | `navigate_passage` | Returns "Opened … at …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 7 | "Do a word study on 'agape'" | `open_word_study` | Returns a message that Bible Word Study opened and the user must type the word (legacy link style: success message) |
 | 8 | "Look up Moses in the Factbook" | `open_factbook` | Returns a choice list (Moses is a person and a topic) — then run 8a |
 | 9 | "What study workflows do I have?" | `get_study_workflows` | Returns templates/instances |
@@ -61,9 +61,9 @@ Call each tool one at a time. Observe the result. Record pass/fail/skip.
 | 12 | "What are my favorites?" | `get_favorites` | Returns favorites or empty (not error) |
 | 13 | "How's my reading plan going?" | `get_reading_progress` | Returns reading plans with sessions read and next reading (or reading lists on older Logos) |
 | 14 | "Find commentaries in my library" | `get_library_catalog` | Returns catalog results |
-| 15 | "Open that first commentary at Romans 12:1" | `open_resource` | Returns success message |
+| 15 | "Open that first commentary at Romans 12:1" | `open_resource` | Returns "Opened … at …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 16 | "Open the Exegetical Guide for John 1:1" | `open_guide` | Returns success message |
-| 17 | "Search all resources for 'baptism'" | `search_all` | Returns success message |
+| 17 | "Search all resources for 'baptism'" | `search_all` | Returns "Opened Search (baptism \| All)" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 18 | "Find Bible refs in: 'See Rom 8:28 and Gen 1:1'" | `scan_references` | Returns found references |
 | 19 | "Compare Romans 8:28-30 with Romans 8:29" | `compare_passages` | Returns relationship data |
 | 20 | "What Bible versions are available?" | `get_available_bibles` | Returns version list |
@@ -74,14 +74,15 @@ Call each tool one at a time. Observe the result. Record pass/fail/skip.
 | 25 | "How far have I read in my books?" | `get_resource_reading_progress` | Returns books with percent read, or "not available" (not an error) |
 | 26 | "What have I been reading in Logos lately?" | `get_reading_history` | Returns recent visits, or "not available" (not an error) |
 | 27 | "Show my passage lists" | `get_passage_lists` | Returns lists with passages, or "not available" (not an error) |
+| 28 | "Which of my commentaries cover John 5:14?" | `find_passage_resources` | Returns resources with IDs, or an empty-result message (not an error) |
 
 ### Follow-up checks (run after the numbered tests; not counted in the totals)
 
 | # | Natural Question | Target Tool | Pass Criteria |
 |---|-----------------|-------------|---------------|
-| 8a | "Open the person Moses" (pass kb_id `bk.#Moses` from test 8's list) | `open_factbook` | Success message naming `bk.#Moses` |
-| 16a | "Open the Passage Guide for John 5:1" | `open_guide` | Success message |
-| 16b | "Open the Topic Guide for Sabbath" | `open_guide` | Success message naming `bk.%Sabbath` |
+| 8a | "Open the person Moses" (pass kb_id `bk.#Moses` from test 8's list) | `open_factbook` | Returns "Opened Factbook \| Moses" or "Logos is already showing Factbook \| Moses", or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 16a | "Open the Passage Guide for John 5:1" | `open_guide` | Returns "Opened Passage Guide …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
+| 16b | "Open the Topic Guide for Sabbath" | `open_guide` | Returns "Opened Topic Guide …" or "Logos is already showing …", or "Logos did not confirm" (pass if Logos was busy; note it) |
 | 16c | "Open the Topic Guide for Healing" | `open_guide` | A choice list (Healing matches two topics) |
 | 13a | "Give me my reading plans as JSON" | `get_reading_progress` (format json) | Valid JSON with `readingPlans` and `readingLists` keys |
 
@@ -89,8 +90,8 @@ Call each tool one at a time. Observe the result. Record pass/fail/skip.
 
 - **Call each tool one at a time** — observe the result before moving on
 - **Skip, don't fail** — if `diagnose` showed a database is missing, skip tools that depend on it
-- **Empty results are OK** — for SQLite tools (notes, highlights, favorites, reading progress, history, passage lists, workflows, catalog, resource types), an empty result set is a pass. A "not available on this Logos version" reply is a pass. Only errors count as failures.
-- **Success message = pass** — for Logos UI tools (navigate_passage, open_word_study, open_factbook, open_resource, open_guide, search_all), a "success" response is a pass (we can't verify Logos actually opened). An explicit "Logos does not accept … via link" explanation is also a pass for open_word_study, and a choice list is a pass for an ambiguous Factbook/Topic Guide name.
+- **Empty results are OK** — for SQLite tools (notes, highlights, favorites, reading progress, history, passage lists, workflows, catalog, resource types, passage resources), an empty result set is a pass. A "not available on this Logos version" reply is a pass. Only errors count as failures.
+- **Success message = pass** — navigate_passage, open_resource, open_guide, open_factbook and search_all check Logos's history: an "Opened …" or "Logos is already showing …" reply is a pass, and "Logos did not confirm" is also a pass when Logos was busy (note it in the report). With `LOGOS_LINK_STYLE=legacy` or no history store they reply "Dispatched to Logos: …", which is a pass. open_word_study cannot be checked: a "success" reply or an explicit "Logos does not accept … via link" explanation is a pass. A choice list is a pass for an ambiguous Factbook/Topic Guide name.
 - **Biblia API tools** — for get_bible_text, search_bible, scan_references, compare_passages, get_available_bibles: pass = non-error response with expected data structure
 - **Test 15 depends on Test 14** — use a resource ID from the `get_library_catalog` result for `open_resource`. If catalog returned nothing, skip test 15.
 
@@ -98,11 +99,11 @@ Call each tool one at a time. Observe the result. Record pass/fail/skip.
 
 ## Phase 3 — Summary Report
 
-After all 27 tests, produce a summary:
+After all 28 tests, produce a summary:
 
 ```
 === QA Results ===
-PASS: 24/27 tools
+PASS: 25/28 tools
 SKIP: 2 (notes DB missing, workflows DB missing)
 FAIL: 1 (get_reading_progress — unexpected error)
 
@@ -131,6 +132,7 @@ Details:
   ✓ get_resource_reading_progress — OK (N books)
   ✓ get_reading_history — OK (N visits)
   ✓ get_passage_lists — OK (N lists)
+  ✓ find_passage_resources — OK (N resources)
 ```
 
 ### Interpreting Results

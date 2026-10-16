@@ -4,7 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 ## What This Does
 
-- **27 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans and per-book progress, browse your reading history and passage lists, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
+- **28 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans and per-book progress, browse your reading history and passage lists, explore word studies and factbook entries, search your library catalog, find which of your books cover a passage, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
 - **A Socratic Bible Study agent** that guides you through Scripture using questions (not lectures), welcoming any denominational background, with four questioning layers: Observation, Interpretation, Correlation, and Application
 - **A QA Tool Tester agent** that systematically exercises all tools and produces a pass/fail/skip report
 
@@ -72,7 +72,7 @@ BIBLIA_API_KEY=your_api_key_here
 claude
 ```
 
-Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 27 tools.
+Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 28 tools.
 
 ## Using with Claude Desktop or Cowork
 
@@ -111,11 +111,11 @@ Tools that open things in the Logos desktop app
 
 | Tool | What it does |
 |------|-------------|
-| `navigate_passage` | Opens a passage in the Logos UI (in your most-used Bible, or one you name) |
+| `navigate_passage` | Opens a passage in the Logos UI (in your most-used Bible, or one you name), and confirms it opened |
 | `open_word_study` | Opens Bible Word Study (current Logos opens it empty — type the word in; see [Limitations](#limitations)) |
-| `open_factbook` | Opens a Factbook entry for a person, place, event, or topic; lists the choices when a name matches several entries |
-| `open_resource` | Opens a specific commentary, lexicon, or other resource in Logos at a passage |
-| `open_guide` | Opens a Passage Guide or Exegetical Guide for a passage, or a Topic Guide for a topic |
+| `open_factbook` | Opens a Factbook entry for a person, place, event, or topic; confirms it opened; lists the choices when a name matches several entries |
+| `open_resource` | Opens a specific commentary, lexicon, or other resource in Logos at a passage, and confirms it opened |
+| `open_guide` | Opens a Passage Guide or Exegetical Guide for a passage, or a Topic Guide for a topic, and confirms it opened |
 | `get_logos_state` | Checks whether Logos is running and, on macOS, lists its open window titles |
 | `capture_panel_screenshot` | macOS only: navigates Logos and captures the visible panel as an image for AI vision |
 
@@ -127,7 +127,7 @@ Tools for searching Bible text and library resources
 | `search_bible` | Searches Bible text for words, phrases, or topics |
 | `get_cross_references` | Finds related passages by extracting key terms |
 | `scan_references` | Finds Bible references embedded in arbitrary text |
-| `search_all` | Runs a search across ALL resources in your library (not just Bible text) in Logos's Search panel |
+| `search_all` | Runs a search across ALL resources in your library (not just Bible text) in Logos's Search panel, and confirms it opened |
 
 ### Library & Resources
 Tools for browsing your owned library catalog
@@ -136,6 +136,9 @@ Tools for browsing your owned library catalog
 |------|-------------|
 | `get_library_catalog` | Searches your owned resources (commentaries, lexicons, etc.) by type, author, or keyword |
 | `get_resource_types` | Shows a summary of resource types and counts in your library |
+| `find_passage_resources` | Lists the commentaries, study Bibles and other books you own that cover a passage (filter by kind and commentary purpose) |
+
+**Opening your commentaries on a passage.** Ask "open my exegetical commentaries on John 5:14": the assistant calls `find_passage_resources` (`passage: "John 5:14"`, `kind: "commentary"`, `purpose: "exegetical"`) and then `open_resource` for each book you choose. Results are ordered commentaries first, then by how often you open each book — not by your Passage Guide prioritization list, which Logos keeps on Faithlife's servers rather than on disk.
 
 ### Personal Study Data
 Tools for accessing your notes, highlights, favorites, reading plans and history
@@ -198,14 +201,14 @@ LogosBibleSoftwareMCP/
 ├── .claude/
 │   └── agents/
 │       ├── socratic-bible-study.md    # Socratic agent definition
-│       └── tool-tester.md            # QA agent for testing all 27 tools
+│       └── tool-tester.md            # QA agent for testing all 28 tools
 ├── .mcp.json                          # MCP server config (you create this)
 ├── .env                               # API key (you create this)
 ├── logos-mcp-server/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # MCP server entry point (27 tools)
+│   │   ├── index.ts                   # MCP server entry point (28 tools)
 │   │   ├── cli.ts                     # Diagnose CLI entry point
 │   │   ├── config.ts                  # Paths, link style, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
@@ -219,7 +222,7 @@ LogosBibleSoftwareMCP/
 │   │   │   ├── db.ts                  # Shared read-only SQLite helpers
 │   │   │   ├── sqlite-reader.ts       # Read-only Logos SQLite access
 │   │   │   ├── study-data.ts          # Reading plans, progress, history, passage lists
-│   │   │   ├── catalog-reader.ts      # Library catalog search (catalog.db)
+│   │   │   ├── catalog-reader.ts      # Library catalog search and passage coverage (catalog.db)
 │   │   │   └── screenshot-capture.ts  # macOS window capture
 │   │   └── utils/                     # clippings.ts (blob decoding), strip-markup.ts, tool-text.ts
 │   └── dist/                          # Built output (after npm run build)
