@@ -4,7 +4,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that c
 
 ## What This Does
 
-- **24 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
+- **27 MCP tools** that let Claude read Bible text, search Scripture, navigate Logos, access your notes/highlights/favorites/clippings, check reading plans and per-book progress, browse your reading history and passage lists, explore word studies and factbook entries, search your library catalog, open commentaries and lexicons, run cross-resource searches, capture Logos panels for vision reading, check what Logos is showing, and diagnose environment issues
 - **A Socratic Bible Study agent** that guides you through Scripture using questions (not lectures), welcoming any denominational background, with four questioning layers: Observation, Interpretation, Correlation, and Application
 - **A QA Tool Tester agent** that systematically exercises all tools and produces a pass/fail/skip report
 
@@ -72,7 +72,7 @@ BIBLIA_API_KEY=your_api_key_here
 claude
 ```
 
-Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 24 tools.
+Once Claude Code starts, type `/mcp` to check that the "logos" server appears with 27 tools.
 
 ## Using with Claude Desktop or Cowork
 
@@ -138,7 +138,7 @@ Tools for browsing your owned library catalog
 | `get_resource_types` | Shows a summary of resource types and counts in your library |
 
 ### Personal Study Data
-Tools for accessing your notes, highlights, favorites, and reading progress
+Tools for accessing your notes, highlights, favorites, reading plans and history
 
 | Tool | What it does |
 |------|-------------|
@@ -146,7 +146,10 @@ Tools for accessing your notes, highlights, favorites, and reading progress
 | `get_user_highlights` | Reads your highlights: style, resource, the passage covered, and date |
 | `get_clippings` | Reads your saved clippings (excerpt text you clipped from resources) |
 | `get_favorites` | Lists your saved favorites/bookmarks |
-| `get_reading_progress` | Shows your reading plan status |
+| `get_reading_progress` | Shows your reading plans: sessions read, next reading, days behind schedule |
+| `get_resource_reading_progress` | Shows how far you've read in each book (percent, last read) |
+| `get_reading_history` | Lists what you've opened in Logos recently, newest first |
+| `get_passage_lists` | Lists your saved passage lists and their passages |
 
 ### Study Workflows
 Tools for structured study paths
@@ -161,6 +164,10 @@ Tools for troubleshooting and verifying your setup
 | Tool | What it does |
 |------|-------------|
 | `diagnose` | Checks Logos data paths, database availability, and API configuration |
+
+### Structured output
+
+Every tool that reads your Logos data (notes, highlights, clippings, favorites, reading plans and progress, history, passage lists, workflows, library catalog, resource types) accepts `format: "json"`. JSON mode returns the underlying records — readable *and* raw Logos references, ISO dates, resource IDs and titles — for building reading plans or feeding other tools, and allows a `limit` of up to 1,000.
 
 ## Using the Socratic Bible Study Agent
 
@@ -191,14 +198,14 @@ LogosBibleSoftwareMCP/
 ├── .claude/
 │   └── agents/
 │       ├── socratic-bible-study.md    # Socratic agent definition
-│       └── tool-tester.md            # QA agent for testing all 24 tools
+│       └── tool-tester.md            # QA agent for testing all 27 tools
 ├── .mcp.json                          # MCP server config (you create this)
 ├── .env                               # API key (you create this)
 ├── logos-mcp-server/
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # MCP server entry point (24 tools)
+│   │   ├── index.ts                   # MCP server entry point (27 tools)
 │   │   ├── cli.ts                     # Diagnose CLI entry point
 │   │   ├── config.ts                  # Paths, link style, API config, constants
 │   │   ├── types.ts                   # Shared TypeScript types
@@ -211,6 +218,7 @@ LogosBibleSoftwareMCP/
 │   │   │   ├── knowledge-lookup.ts    # Factbook names -> knowledge-base IDs
 │   │   │   ├── db.ts                  # Shared read-only SQLite helpers
 │   │   │   ├── sqlite-reader.ts       # Read-only Logos SQLite access
+│   │   │   ├── study-data.ts          # Reading plans, progress, history, passage lists
 │   │   │   ├── catalog-reader.ts      # Library catalog search (catalog.db)
 │   │   │   └── screenshot-capture.ts  # macOS window capture
 │   │   └── utils/                     # clippings.ts (blob decoding), strip-markup.ts, tool-text.ts
@@ -223,7 +231,7 @@ The MCP server integrates with Logos through four channels:
 
 - **Biblia API** - Retrieves Bible text and search results via the free REST API from Faithlife (same company as Logos)
 - **URL schemes** - Opens passages, resources, guides and Factbook entries in the Logos app using `logosres:` and `logos4:` links (via `open` on macOS, the registered protocol handler on Windows); see [Logos Link Style](#logos-link-style)
-- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans) and library catalog directly from the Logos local database files (read-only access, never modifies your data)
+- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans and progress, history, passage lists) and library catalog directly from the Logos local database files (read-only access, never modifies your data)
 - **Screen capture + vision** - Captures Logos windows so AI can read content displayed in the app UI when direct DB text access is unavailable
 
 ## Logos Data Path
