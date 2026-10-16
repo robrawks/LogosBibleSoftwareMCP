@@ -6,5 +6,9 @@ Historical design docs for features that were planned and implemented in this re
 - [2026-02-25-thompson-chain-study-mode-design.md](2026-02-25-thompson-chain-study-mode-design.md) — Design for Chain Study mode: Socratic enrichment of physical Thompson Bible chains using Logos MCP tools (lexicons first, commentaries last).
 - [2026-02-25-response-cleanup-design.md](2026-02-25-response-cleanup-design.md) — Design for cleaning noisy MCP tool responses: strip XAML markup, drop debug metadata and useless fields from 5 tools.
 - [2026-02-25-response-cleanup-plan.md](2026-02-25-response-cleanup-plan.md) — TDD implementation plan for the response cleanup: shared `stripXml`/`stripRichText` utilities, service-layer cleanup, handler simplification.
+- [2026-10-15-logos54-fixes-and-study-data-design.md](2026-10-15-logos54-fixes-and-study-data-design.md) — Design for Logos 54 compatibility fixes (book numbers, verse anchors, link formats, Factbook IDs), study-data tools (reading plans, progress, history, passage lists, JSON output), and a passage commentary finder, delivered as three PRs.
+- [2026-10-15-logos54-pr1-fixes-plan.md](2026-10-15-logos54-pr1-fixes-plan.md) — TDD plan for PR 1: Logos book numbers, facet-table note verses, `LOGOS_LINK_STYLE` link builders, Factbook knowledge-base lookup, honest Windows/word-study/search messages, blob header fix.
+- [2026-10-15-logos54-pr2-study-data-plan.md](2026-10-15-logos54-pr2-study-data-plan.md) — TDD plan for PR 2: reading plans in `get_reading_progress`, three new study-data tools, `format: "json"` on read tools, stdio server test harness.
+- [2026-10-15-logos54-pr3-passage-resources-plan.md](2026-10-15-logos54-pr3-passage-resources-plan.md) — TDD plan for PR 3: `find_passage_resources` from catalog coverage, and history-confirmed `open_resource`.
 
 *Previously located in `docs/plans/` and `logos-mcp-server/docs/plans/`; consolidated here on 2026-08-03.*

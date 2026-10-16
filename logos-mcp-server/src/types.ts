@@ -48,6 +48,11 @@ export interface LogosCommandResult {
   error?: string;
 }
 
+/** What a guide link points at: a Bible reference or a knowledge-base ID. */
+export type GuideTarget =
+  | { kind: "bible"; reference: string }
+  | { kind: "kb"; id: string };
+
 // ─── SQLite / User Data Types ────────────────────────────────────────────────
 
 export interface HighlightResult {
@@ -57,6 +62,10 @@ export interface HighlightResult {
   syncDate: string | null;
   /** Human-readable title of the resource this highlight lives in (best-effort, null when the catalog is unavailable). */
   resourceTitle: string | null;
+  /** Readable Bible reference(s) the highlight covers, "; "-joined (null when unknown). */
+  reference: string | null;
+  /** Raw Logos references behind `reference`, e.g. "bible.66.1.8-66.1.15". */
+  rawReferences: string[];
 }
 
 export interface FavoriteResult {
@@ -134,6 +143,95 @@ export interface ClippingResult {
   tags: string | null;
 }
 
+// ─── Study Data Types ────────────────────────────────────────────────────────
+
+export interface PlanReading {
+  resourceId: string | null;
+  /** Raw Logos reference, e.g. "bible+csb2.87.22" or "page.9-13". */
+  rawReference: string;
+  /** Readable form, e.g. "Revelation 22" or "pp 9-13" (raw when unrecognized). */
+  reference: string;
+}
+
+export interface PlanSession {
+  /** Position in the plan's session list (ReadSessions counts in these). */
+  index: number;
+  /** Scheduled date, YYYY-MM-DD. */
+  date: string | null;
+  readings: PlanReading[];
+}
+
+export interface ReadingPlan {
+  documentId: string;
+  title: string;
+  resourceId: string | null;
+  resourceTitle: string | null;
+  startDate: string | null;
+  /** The plan's Settings JSON as stored (range, frequency, timeframe…). */
+  settings: Record<string, unknown> | null;
+  /** Sessions that have at least one reading. */
+  sessionsWithReadings: number;
+  /** Sessions with readings that are marked read; null when progress is unknown. */
+  sessionsRead: number | null;
+  /** ReadSessions as stored when it isn't a plain non-negative integer. */
+  unparsedReadSessions: string | null;
+  nextReading: PlanSession | null;
+  /** Days between the next reading's date and today, when positive. */
+  daysBehind: number | null;
+  completed: boolean;
+}
+
+/** How far the user has read in one resource, from Logos's reading tracker. */
+export interface ResourceReadingProgressEntry {
+  resourceId: string;
+  title: string | null;
+  /** Percent of the resource read, 0-100, one decimal. */
+  percentRead: number;
+  /** When the user last read in it (ISO, as Logos stored it). */
+  lastReadDate: string | null;
+}
+
+/** The parts of a History.Bookmark string that Logos tools use. */
+export interface HistoryBookmark {
+  /** Text before the first "|": "Resource", "Guides", "Search", "Factbook". */
+  kind: string;
+  /** For resource visits, the resource ID (e.g. "LLS:LEB"). */
+  resourceId: string | null;
+  /** Raw Logos reference of the location, e.g. "bible+leb2.65.3.21". */
+  rawReference: string | null;
+}
+
+/** One entry of the user's Logos browsing history. */
+export interface HistoryVisit {
+  id: string;
+  /** What was opened, as Logos shows it (e.g. "LEB", "Exegetical Guide"). */
+  title: string;
+  /** Where in it (e.g. "John 5:1-9"); null when Logos stored none. */
+  subtitle: string | null;
+  /** UTC ISO timestamp. */
+  lastVisited: string;
+  kind: string;
+  resourceId: string | null;
+  rawReference: string | null;
+  /** Readable form of rawReference, when it is a mapped Bible reference. */
+  reference: string | null;
+}
+
+/** One passage in a saved Logos passage list. */
+export interface PassageListEntry {
+  /** Raw Logos reference, e.g. "bible.18.10.21-18.10.22". */
+  rawReference: string;
+  /** Readable form ("Job 10:21-22"), or the raw string when unmapped. */
+  reference: string;
+}
+
+/** A named passage list saved in Logos. */
+export interface PassageList {
+  title: string | null;
+  modifiedDate: string | null;
+  passages: PassageListEntry[];
+}
+
 // ─── Catalog Types ──────────────────────────────────────────────────────────
 
 export interface CatalogResource {
@@ -153,6 +251,28 @@ export interface ResourceTypeSummary {
   rawType: string;
   count: number;
 }
+
+// ─── Knowledge Base Types ────────────────────────────────────────────────────
+
+export interface KnowledgeEntry {
+  /** Knowledge-base ID, e.g. "bk.#Moses", "bk.%Sabbath", "bk.to:DBT-5333". */
+  id: string;
+  label: string;
+  /** Logos entry kind (IconKinds.IconKind), e.g. "Man", "Topic", "PreachingTheme". */
+  kind: string | null;
+  description: string | null;
+}
+
+export type KnowledgeResolution =
+  | { status: "resolved"; entry: KnowledgeEntry }
+  | { status: "ambiguous"; matches: KnowledgeEntry[] }
+  | { status: "not_found" }
+  | { status: "unavailable"; message: string };
+
+export type GuideTargetResolution =
+  | KnowledgeResolution
+  | { status: "bible"; reference: string }
+  | { status: "invalid"; message: string };
 
 // ─── Biblia Scan / Compare / Find Types ─────────────────────────────────────
 
