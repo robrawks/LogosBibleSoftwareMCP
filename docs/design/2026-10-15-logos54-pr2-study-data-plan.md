@@ -1882,7 +1882,7 @@ git commit -m "feat: add get_reading_history from logos's history.db"
   - `getPassageLists(): PassageList[] | null`
   - Tool `get_passage_lists` (`format`).
 
-- [ ] **Step 1: Add the fixture schema**
+- [x] **Step 1: Add the fixture schema**
 
 Append to `tests/helpers/schemas.ts`:
 
@@ -1907,7 +1907,7 @@ export const OBSERVED_PASSAGE_ITEMS_HEX =
   "02530000005B7B22726566223A226269626C652E31382E31302E32312D31382E31302E3232227D2C7B22726566223A226269626C652E32312E392E3130227D2C7B22726566223A226269626C652E32332E352E3134227D5D";
 ```
 
-- [ ] **Step 2: Write the failing unit tests**
+- [x] **Step 2: Write the failing unit tests**
 
 `tests/passage-lists.test.ts`:
 
@@ -1993,12 +1993,12 @@ describe("getPassageLists without PassageList.db", () => {
 });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `npx vitest run tests/passage-lists.test.ts`
 Expected: FAIL — `parsePassageItems` is not exported.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `src/config.ts` — add `"passageLists"` to `OPTIONAL_DB_NAMES` (the path already exists; older installs may not have the file).
 
@@ -2069,12 +2069,12 @@ export function getPassageLists(): PassageList[] | null {
 }
 ```
 
-- [ ] **Step 5: Run the unit tests**
+- [x] **Step 5: Run the unit tests**
 
 Run: `npx vitest run tests/passage-lists.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Extend the server tests (failing)**
+- [x] **Step 6: Extend the server tests (failing)**
 
 In `tests/server-study-tools.test.ts`: add `PASSAGE_LIST_SCHEMA, OBSERVED_PASSAGE_ITEMS_HEX` to the schemas import; in the "every store present" `beforeAll`, before `startServer`, add:
 
@@ -2108,12 +2108,12 @@ Add to the "no stores" `describe`:
 
 In `tests/server-smoke.test.ts`, change the tool count to `27`.
 
-- [ ] **Step 7: Run them to verify they fail**
+- [x] **Step 7: Run them to verify they fail**
 
 Run: `npx vitest run tests/server-study-tools.test.ts tests/server-smoke.test.ts`
 Expected: FAIL — unknown tool `get_passage_lists`.
 
-- [ ] **Step 8: Register the tool**
+- [x] **Step 8: Register the tool**
 
 Extend the study-data import with `getPassageLists`, and insert after block 26:
 
@@ -2142,17 +2142,19 @@ Extend the study-data import with `getPassageLists`, and insert after block 26:
   );
 ```
 
-- [ ] **Step 9: Run all tests and the build**
+- [x] **Step 9: Run all tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/config.ts src/types.ts src/services/study-data.ts src/index.ts tests/helpers/schemas.ts tests/passage-lists.test.ts tests/server-study-tools.test.ts tests/server-smoke.test.ts
 git commit -m "feat: add get_passage_lists"
 ```
+
+> **As built (`e8caea1`):** matches plan.
 
 ---
 
