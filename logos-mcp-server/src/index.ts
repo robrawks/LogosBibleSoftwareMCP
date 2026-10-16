@@ -23,6 +23,7 @@ import {
   formatKnowledgeChoices,
   windowTitlesAvailable,
 } from "./utils/tool-text.js";
+import { resolveLimit, toJsonText } from "./utils/output.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
@@ -66,6 +67,13 @@ function image(base64: string, description: string) {
     ],
   };
 }
+
+function json(data: unknown) {
+  return text(toJsonText(data));
+}
+
+const formatParam = z.enum(["text", "json"]).optional()
+  .describe('Output format: "text" (default) for reading, or "json" for structured data — raw and readable references, ISO dates, resource IDs and titles — to process further');
 
 const LOGOS_NOT_RUNNING =
   "Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.";
