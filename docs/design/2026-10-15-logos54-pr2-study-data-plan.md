@@ -1106,7 +1106,7 @@ git commit -m "fix: read reading plans from ReadingPlan.db — next reading and 
   - `getResourceReadingProgress(options?: { sort?: "recent" | "percent"; type?: string; limit?: number }): ResourceReadingProgressEntry[] | null`
   - Tool `get_resource_reading_progress` (`sort`, `type`, `limit`, `format`).
 
-- [ ] **Step 1: Add the fixture schema**
+- [x] **Step 1: Add the fixture schema**
 
 Append to `tests/helpers/schemas.ts`:
 
@@ -1131,7 +1131,7 @@ export const READING_PROGRESS_SCHEMA = `
 `;
 ```
 
-- [ ] **Step 2: Write the failing unit tests**
+- [x] **Step 2: Write the failing unit tests**
 
 `tests/resource-progress.test.ts`:
 
@@ -1232,12 +1232,12 @@ describe("getResourceReadingProgress without the reading tracker", () => {
 });
 ```
 
-- [ ] **Step 3: Run them to verify they fail**
+- [x] **Step 3: Run them to verify they fail**
 
 Run: `npx vitest run tests/resource-progress.test.ts`
 Expected: FAIL — `getResourceReadingProgress is not a function`.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `src/config.ts` — add to `DB_PATHS` after `autoComplete` (`Data/<id>` paths use `LOGOS_CATALOG_DIR`, which despite its name is the `Data/<id>` directory):
 
@@ -1345,12 +1345,12 @@ export function getResourceReadingProgress(options: {
 }
 ```
 
-- [ ] **Step 5: Run the unit tests**
+- [x] **Step 5: Run the unit tests**
 
 Run: `npx vitest run tests/resource-progress.test.ts`
 Expected: PASS.
 
-- [ ] **Step 6: Write the failing server test**
+- [x] **Step 6: Write the failing server test**
 
 `tests/server-study-tools.test.ts` (Tasks 4 and 5 add to this file):
 
@@ -1422,12 +1422,12 @@ describe("study-data tools with no stores", () => {
 
 In `tests/server-smoke.test.ts`, change `toHaveLength(24)` to `toHaveLength(25)`.
 
-- [ ] **Step 7: Run it to verify it fails**
+- [x] **Step 7: Run it to verify it fails**
 
 Run: `npx vitest run tests/server-study-tools.test.ts tests/server-smoke.test.ts`
 Expected: FAIL — unknown tool `get_resource_reading_progress`; tool count 24.
 
-- [ ] **Step 8: Register the tool**
+- [x] **Step 8: Register the tool**
 
 In `src/index.ts`, extend the study-data import to `import { getReadingPlans, getResourceReadingProgress } from "./services/study-data.js";` and insert before `// ── Start server`:
 
@@ -1464,17 +1464,19 @@ In `src/index.ts`, extend the study-data import to `import { getReadingPlans, ge
   );
 ```
 
-- [ ] **Step 9: Run all tests and the build**
+- [x] **Step 9: Run all tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add src/config.ts src/cli.ts src/types.ts src/services/catalog-reader.ts src/services/study-data.ts src/index.ts tests/helpers/schemas.ts tests/resource-progress.test.ts tests/server-study-tools.test.ts tests/server-smoke.test.ts
 git commit -m "feat: add get_resource_reading_progress from logos's reading tracker"
 ```
+
+> **As built (`04b1ba4`):** matches plan.
 
 ---
 
