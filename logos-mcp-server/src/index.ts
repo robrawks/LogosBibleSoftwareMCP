@@ -49,7 +49,8 @@ import {
 } from "./services/sqlite-reader.js";
 import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import type { CaptureToolType, GuideTarget, GuideTargetResolution } from "./types.js";
+import { getReadingPlans } from "./services/study-data.js";
+import type { CaptureToolType, GuideTarget, GuideTargetResolution, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -99,6 +100,40 @@ function canonicalReference(input: string): string | null {
   } catch {
     return null;
   }
+}
+
+function formatReadingPlan(p: ReadingPlan): string {
+  const book = p.resourceTitle ?? p.resourceId;
+  const header = `- **${p.title}**${book ? ` — ${book}` : ""}`;
+  if (p.sessionsRead === null) {
+    return `${header}\n  progress unknown (ReadSessions = "${p.unparsedReadSessions}")`;
+  }
+  if (p.completed) {
+    return `${header}\n  all ${p.sessionsWithReadings} sessions read`;
+  }
+  const parts = [`${p.sessionsRead} of ${p.sessionsWithReadings} sessions read`];
+  if (p.nextReading) {
+    const readings = p.nextReading.readings.map((r) => r.reference).join(", ");
+    parts.push(`next: ${readings}${p.nextReading.date ? ` (${p.nextReading.date})` : ""}`);
+  }
+  if (p.daysBehind !== null) parts.push(`${p.daysBehind} days behind`);
+  return `${header}\n  ${parts.join(" · ")}`;
+}
+
+function formatReadingLists(progress: ReadingProgress): string {
+  const sections: string[] = [
+    `## Reading Lists\n\n**Overall**: ${progress.completedItems}/${progress.totalItems} items (${progress.percentComplete}%)`,
+  ];
+  if (progress.statuses.length > 0) {
+    sections.push(progress.statuses.map((s) => `- **${s.title}** by ${s.author} — ${s.statusLabel}`).join("\n"));
+  }
+  if (progress.items.length > 0) {
+    const MAX_ITEMS = 20;
+    const itemLines = progress.items.slice(0, MAX_ITEMS).map((i) => `- ${i.isRead ? "[read]" : "[unread]"} ${i.readingListPath}`);
+    const extra = progress.items.length > MAX_ITEMS ? `\n+${progress.items.length - MAX_ITEMS} more` : "";
+    sections.push(`### Items\n\n${itemLines.join("\n")}${extra}`);
+  }
+  return sections.join("\n\n");
 }
 
 async function main() {
@@ -374,22 +409,31 @@ async function main() {
   // ── 10. get_reading_progress ─────────────────────────────────────────────
   server.tool(
     "get_reading_progress",
-    "Show the user's reading plan progress from Logos Bible Software. Displays reading lists, completion percentages, status, and recent items.",
-    {},
-    async () => {
-      const progress = getReadingProgress();
-      const sections: string[] = [];
-      sections.push(`**Overall**: ${progress.completedItems}/${progress.totalItems} items (${progress.percentComplete}%)`);
-      if (progress.statuses.length > 0) {
-        const statusLines = progress.statuses.map((s) => `- **${s.title}** by ${s.author} — ${s.statusLabel}`);
-        sections.push(`## Reading Plans\n\n${statusLines.join("\n")}`);
+    "Show the user's Logos reading plans: for each plan its book, how many sessions are read, the next reading with its scheduled date, and how many days behind schedule it is. Also shows lists from Logos's older reading-list store when it has any. Use format 'json' for structured data (e.g. to build a new plan from where the user is).",
+    { format: formatParam },
+    async ({ format }) => {
+      const plans = getReadingPlans();
+      let lists: ReadingProgress | null;
+      try {
+        lists = getReadingProgress();
+      } catch {
+        lists = null; // ReadingLists.db absent
       }
-      if (progress.items.length > 0) {
-        const MAX_ITEMS = 20;
-        const shown = progress.items.slice(0, MAX_ITEMS);
-        const itemLines = shown.map((i) => `- ${i.isRead ? "[read]" : "[unread]"} ${i.readingListPath}`);
-        const extra = progress.items.length > MAX_ITEMS ? `\n+${progress.items.length - MAX_ITEMS} more` : "";
-        sections.push(`## Items\n\n${itemLines.join("\n")}${extra}`);
+      if (format === "json") return json({ readingPlans: plans, readingLists: lists });
+      if (plans === null && lists === null) {
+        return err("No reading plan store found (neither ReadingPlan.db nor ReadingLists.db). Run diagnose to check the Logos data paths.");
+      }
+
+      const sections: string[] = [];
+      if (plans !== null) {
+        sections.push(plans.length > 0
+          ? `## Reading Plans\n\n${plans.map(formatReadingPlan).join("\n\n")}`
+          : "## Reading Plans\n\nNo reading plans found.");
+      }
+      // Logos 54 keeps an empty older store; show it only when it is the only
+      // store or actually holds lists.
+      if (lists !== null && (plans === null || lists.statuses.length > 0 || lists.items.length > 0)) {
+        sections.push(formatReadingLists(lists));
       }
       return text(sections.join("\n\n"));
     }

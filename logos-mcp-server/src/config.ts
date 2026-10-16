@@ -128,6 +128,7 @@ export const DB_PATHS = {
   notes: join(LOGOS_DATA_DIR, "NotesToolManager", "notestool.db"),
   clippings: join(LOGOS_DATA_DIR, "Documents", "Clippings", "Clippings.db"),
   passageLists: join(LOGOS_DATA_DIR, "Documents", "PassageList", "PassageList.db"),
+  readingPlans: join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db"),
   catalog: join(LOGOS_CATALOG_DIR, "LibraryCatalog", "catalog.db"),
   // Name -> knowledge-base ID lookup (~110 MB; queries touch only small tables).
   autoComplete: join(LOGOS_CATALOG_DIR, "AutoComplete", "AutoComplete.db"),
@@ -138,7 +139,7 @@ export const DB_PATHS = {
 // their tools fall back or answer "not available". visualMarkup is absent on
 // Logos 54 (highlights moved to notestool.db); AutoComplete.db is built on
 // first run.
-export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete"]);
+export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete", "readingPlans", "readingLists"]);
 
 // ─── Biblia API ──────────────────────────────────────────────────────────────
 

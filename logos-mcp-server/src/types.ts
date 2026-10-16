@@ -143,6 +143,44 @@ export interface ClippingResult {
   tags: string | null;
 }
 
+// ─── Study Data Types ────────────────────────────────────────────────────────
+
+export interface PlanReading {
+  resourceId: string | null;
+  /** Raw Logos reference, e.g. "bible+csb2.87.22" or "page.9-13". */
+  rawReference: string;
+  /** Readable form, e.g. "Revelation 22" or "pp 9-13" (raw when unrecognized). */
+  reference: string;
+}
+
+export interface PlanSession {
+  /** Position in the plan's session list (ReadSessions counts in these). */
+  index: number;
+  /** Scheduled date, YYYY-MM-DD. */
+  date: string | null;
+  readings: PlanReading[];
+}
+
+export interface ReadingPlan {
+  documentId: string;
+  title: string;
+  resourceId: string | null;
+  resourceTitle: string | null;
+  startDate: string | null;
+  /** The plan's Settings JSON as stored (range, frequency, timeframe…). */
+  settings: Record<string, unknown> | null;
+  /** Sessions that have at least one reading. */
+  sessionsWithReadings: number;
+  /** Sessions with readings that are marked read; null when progress is unknown. */
+  sessionsRead: number | null;
+  /** ReadSessions as stored when it isn't a plain non-negative integer. */
+  unparsedReadSessions: string | null;
+  nextReading: PlanSession | null;
+  /** Days between the next reading's date and today, when positive. */
+  daysBehind: number | null;
+  completed: boolean;
+}
+
 // ─── Catalog Types ──────────────────────────────────────────────────────────
 
 export interface CatalogResource {

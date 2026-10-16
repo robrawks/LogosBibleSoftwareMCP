@@ -97,3 +97,45 @@ export const AUTOCOMPLETE_SCHEMA = `
     IconKind text not null
   );
 `;
+
+export const READING_PLAN_SCHEMA = `
+  CREATE TABLE ReadingPlanDocuments (
+    Id integer primary key autoincrement,
+    DocumentId text not null,
+    Title text,
+    Settings text,
+    ScheduleId guid,
+    Sessions text,
+    ModifiedDate text,
+    IsDeleted int not null default 0
+  );
+  CREATE TABLE ReadingPlanStatus (
+    Id integer primary key autoincrement,
+    SyncId text not null,
+    ResourceId text,
+    ReadSessions text,
+    ModifiedDate text,
+    IsDeleted int not null default 0
+  );
+`;
+
+// The older reading-list store (present but empty on Logos 54, F9).
+export const READING_LISTS_SCHEMA = `
+  CREATE TABLE ReadingListStatuses (
+    ReadingListStatusId integer primary key autoincrement,
+    ReadingListPathNormalized text not null,
+    ModifiedDate text,
+    IsDeleted bool not null default 0,
+    Title text not null,
+    Author text not null,
+    Path text not null,
+    Status int not null
+  );
+  CREATE TABLE Items (
+    ItemRowId integer primary key autoincrement,
+    ItemId text not null,
+    ReadingListPathNormalized text not null,
+    IsRead bool not null default 0,
+    ModifiedDate text
+  );
+`;
