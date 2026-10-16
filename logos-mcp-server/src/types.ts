@@ -191,6 +191,47 @@ export interface ResourceReadingProgressEntry {
   lastReadDate: string | null;
 }
 
+/** The parts of a History.Bookmark string that Logos tools use. */
+export interface HistoryBookmark {
+  /** Text before the first "|": "Resource", "Guides", "Search", "Factbook". */
+  kind: string;
+  /** For resource visits, the resource ID (e.g. "LLS:LEB"). */
+  resourceId: string | null;
+  /** Raw Logos reference of the location, e.g. "bible+leb2.65.3.21". */
+  rawReference: string | null;
+}
+
+/** One entry of the user's Logos browsing history. */
+export interface HistoryVisit {
+  id: string;
+  /** What was opened, as Logos shows it (e.g. "LEB", "Exegetical Guide"). */
+  title: string;
+  /** Where in it (e.g. "John 5:1-9"); null when Logos stored none. */
+  subtitle: string | null;
+  /** UTC ISO timestamp. */
+  lastVisited: string;
+  kind: string;
+  resourceId: string | null;
+  rawReference: string | null;
+  /** Readable form of rawReference, when it is a mapped Bible reference. */
+  reference: string | null;
+}
+
+/** One passage in a saved Logos passage list. */
+export interface PassageListEntry {
+  /** Raw Logos reference, e.g. "bible.18.10.21-18.10.22". */
+  rawReference: string;
+  /** Readable form ("Job 10:21-22"), or the raw string when unmapped. */
+  reference: string;
+}
+
+/** A named passage list saved in Logos. */
+export interface PassageList {
+  title: string | null;
+  modifiedDate: string | null;
+  passages: PassageListEntry[];
+}
+
 // ─── Catalog Types ──────────────────────────────────────────────────────────
 
 export interface CatalogResource {
@@ -301,45 +342,4 @@ export interface ToolResult {
     | { type: "image"; data: string; mimeType: string }
   >;
   isError?: boolean;
-}
-
-/** The parts of a History.Bookmark string that Logos tools use. */
-export interface HistoryBookmark {
-  /** Text before the first "|": "Resource", "Guides", "Search", "Factbook". */
-  kind: string;
-  /** For resource visits, the resource ID (e.g. "LLS:LEB"). */
-  resourceId: string | null;
-  /** Raw Logos reference of the location, e.g. "bible+leb2.65.3.21". */
-  rawReference: string | null;
-}
-
-/** One entry of the user's Logos browsing history. */
-export interface HistoryVisit {
-  id: string;
-  /** What was opened, as Logos shows it (e.g. "LEB", "Exegetical Guide"). */
-  title: string;
-  /** Where in it (e.g. "John 5:1-9"); null when Logos stored none. */
-  subtitle: string | null;
-  /** UTC ISO timestamp. */
-  lastVisited: string;
-  kind: string;
-  resourceId: string | null;
-  rawReference: string | null;
-  /** Readable form of rawReference, when it is a mapped Bible reference. */
-  reference: string | null;
-}
-
-/** One passage in a saved Logos passage list. */
-export interface PassageListEntry {
-  /** Raw Logos reference, e.g. "bible.18.10.21-18.10.22". */
-  rawReference: string;
-  /** Readable form ("Job 10:21-22"), or the raw string when unmapped. */
-  reference: string;
-}
-
-/** A named passage list saved in Logos. */
-export interface PassageList {
-  title: string | null;
-  modifiedDate: string | null;
-  passages: PassageListEntry[];
 }

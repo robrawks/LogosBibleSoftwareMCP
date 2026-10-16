@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { join } from "path";
 import {
   makeFixtureDirs,
@@ -75,5 +75,43 @@ describe("getPassageLists without PassageList.db", () => {
 
   it("returns null", () => {
     expect(studyData.getPassageLists()).toBeNull();
+  });
+});
+
+describe("getPassageLists when the table check throws", () => {
+  let dirs: FixtureDirs;
+  let studyData: StudyData;
+  const opened: import("better-sqlite3").Database[] = [];
+
+  beforeAll(async () => {
+    dirs = makeFixtureDirs();
+    createDb(join(dirs.dataDir, "Documents", "PassageList", "PassageList.db"), PASSAGE_LIST_SCHEMA);
+    useFixtureDirs(dirs);
+    // A corrupt or locked file fails on the first query, not on open.
+    vi.doMock("../src/services/db.js", async (importOriginal) => {
+      const real = await importOriginal<typeof import("../src/services/db.js")>();
+      return {
+        ...real,
+        openDb: (path: string) => {
+          const db = real.openDb(path);
+          opened.push(db);
+          return db;
+        },
+        hasTable: () => {
+          throw new Error("file is not a database");
+        },
+      };
+    });
+    studyData = await import("../src/services/study-data.js");
+  });
+  afterAll(() => {
+    vi.doUnmock("../src/services/db.js");
+    cleanupFixtureDirs(dirs);
+  });
+
+  it("returns null and closes the handle", () => {
+    expect(studyData.getPassageLists()).toBeNull();
+    expect(opened).toHaveLength(1);
+    expect(opened[0].open).toBe(false);
   });
 });

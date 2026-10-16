@@ -167,7 +167,7 @@ Tools for troubleshooting and verifying your setup
 
 ### Structured output
 
-Every tool that reads your Logos data (notes, highlights, clippings, favorites, reading plans and progress, history, passage lists, workflows, library catalog, resource types) accepts `format: "json"`. JSON mode returns the underlying records — readable *and* raw Logos references, ISO dates, resource IDs and titles — for building reading plans or feeding other tools, and allows a `limit` of up to 1,000.
+Every tool that reads your Logos data (notes, highlights, clippings, favorites, reading plans and progress, history, passage lists, workflows, library catalog, resource types) accepts `format: "json"`. JSON mode returns the underlying records — readable *and* raw Logos references, ISO dates, resource IDs and titles — for building reading plans or feeding other tools, and allows a `limit` of up to 1,000. A store your Logos version doesn't have comes back as `null`.
 
 ## Using the Socratic Bible Study Agent
 

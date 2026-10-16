@@ -12,13 +12,18 @@ import type { HistoryBookmark, HistoryVisit, PassageList, PassageListEntry, Plan
 
 // Open a store only if it has the table the reader needs; null otherwise.
 function openIfPresent(path: string, table: string): Database.Database | null {
+  let db: Database.Database;
   try {
-    const db = openDb(path);
-    if (hasTable(db, table)) return db;
-    db.close();
+    db = openDb(path);
   } catch {
-    // store absent or unreadable
+    return null; // store absent or unreadable
   }
+  try {
+    if (hasTable(db, table)) return db;
+  } catch {
+    // corrupt or locked: the first query fails, not the open
+  }
+  db.close();
   return null;
 }
 

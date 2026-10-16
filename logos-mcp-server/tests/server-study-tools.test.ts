@@ -65,9 +65,15 @@ describe("study-data tools with every store present", () => {
     expect(text).toContain("**Sheol — Key Passages** (modified 2024-07-20)\n- Job 10:21-22\n- Ecclesiastes 9:10\n- Isaiah 5:14");
   });
 
-  it("rejects a malformed since date", async () => {
-    const result = await callTool(client, "get_reading_history", { since: "last week" });
+  it.each(["last week", "2026-10-15garbage"])("rejects the malformed since date %j", async (since) => {
+    const result = await callTool(client, "get_reading_history", { since });
     expect(result.isError).toBe(true);
+  });
+
+  it.each(["2026-10-15", "2026-10-15T06:50:00Z"])("accepts the since date %j", async (since) => {
+    const { text, isError } = await callTool(client, "get_reading_history", { since });
+    expect(isError).toBe(false);
+    expect(text).toContain("**LEB** — Acts 3:21");
   });
 });
 
@@ -101,4 +107,13 @@ describe("study-data tools with no stores", () => {
     expect(result.isError).toBe(false);
     expect(result.text).toContain("not available on this Logos version");
   });
+
+  it.each(["get_resource_reading_progress", "get_reading_history", "get_passage_lists"])(
+    "returns JSON null from %s, without an error",
+    async (tool) => {
+      const result = await callTool(client, tool, { format: "json" });
+      expect(result.isError).toBe(false);
+      expect(JSON.parse(result.text)).toBeNull();
+    }
+  );
 });
