@@ -2519,8 +2519,8 @@ Then `rm pr-body.md`.
 
 ## Resume State
 
-- **Last completed task:** none (plan written 2026-10-15).
-- **Commit SHA:** plan committed on `docs/logos54-spec`.
-- **Ticked checkboxes:** none.
-- **Next task:** Task 1, Step 0 (create `feature/study-data` once PR 1's branch exists).
-- **Caveats:** needs PR 1's code. Task 7 Step 5 needs Will on Windows with Logos 54.
+- Last completed task: Task 6: `format: "json"` on the existing read tools
+- Commit SHA: 4c5533c
+- Checkboxes: 59/61 ticked
+- Next task: Task 7, Step 5 (manual Windows verification by Will), then Step 6 (push and PR, needs Will's approval)
+- Known-failing tests / caveats: Tasks 1-6 and Task 7 Steps 1-4 done; 276 tests pass, build clean. Branch feature/study-data; per user, PR 1 merged to main and PR 2 lands on main directly (no stacked PR). plan_end_gate.py does not exist in this Node repo; full suite ran per task instead. Minor review findings are deferred in the SDD ledger (.superpowers/sdd/...progress.md); notably Task 2: get_reading_progress JSON mode skips the no-store error that Deviation 2 describes. Run /review-will next.
