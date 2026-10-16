@@ -2168,7 +2168,7 @@ git commit -m "feat: add get_passage_lists"
 - Consumes: `json`, `formatParam`, `resolveLimit` (Task 1); `typeLabel` (catalog-reader).
 - Produces: `format` parameter on `get_user_notes`, `get_user_highlights`, `get_clippings`, `get_favorites`, `get_study_workflows`, `get_library_catalog`, `get_resource_types`. JSON mode returns the service objects (`get_library_catalog` adds `typeLabel`; `get_study_workflows` returns `{ templates, instances }`), even when empty.
 
-- [ ] **Step 1: Write the failing server test**
+- [x] **Step 1: Write the failing server test**
 
 `tests/server-json.test.ts`:
 
@@ -2276,12 +2276,12 @@ describe("JSON output", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `npx vitest run tests/server-json.test.ts`
 Expected: FAIL — `format` missing on the seven existing tools; JSON calls return text.
 
-- [ ] **Step 3: Add `format` to the seven handlers**
+- [x] **Step 3: Add `format` to the seven handlers**
 
 In `src/index.ts`, make these changes (each adds `format: formatParam` to the schema, routes `limit` through `resolveLimit`, and returns `json(...)` before any empty-result message):
 
@@ -2356,17 +2356,19 @@ Block 22 `get_resource_types` — schema `{ format: formatParam }`; inside the `
 
 with signature `async ({ format }) => {`.
 
-- [ ] **Step 4: Run all tests and the build**
+- [x] **Step 4: Run all tests and the build**
 
 Run: `npx vitest run && npm run build`
 Expected: all PASS; `tsc` exits 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/index.ts tests/server-json.test.ts
 git commit -m "feat: add format json to every read tool — limit capped at 1000 in json mode"
 ```
+
+> **As built (`457452d`):** matches plan.
 
 ---
 
