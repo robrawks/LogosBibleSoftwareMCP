@@ -125,3 +125,51 @@ export function logosRawToHuman(raw: string): string | null {
   }
   return `${result}-${end.chapter}:${end.verse}`;
 }
+
+// ─── Coverage ranges ─────────────────────────────────────────────────────────
+
+/**
+ * Bible ranges from a catalog ReferenceSupersets value. Entries are
+ * tab-separated on Logos 54 (split on any whitespace); non-Bible entries such
+ * as "af.1-2" are skipped.
+ *
+ * @param value - The raw ReferenceSupersets column value.
+ * @returns The Bible ranges found, in order. Never throws.
+ */
+export function parseReferenceSupersets(value: string): LogosBibleRange[] {
+  return value
+    .split(/\s+/)
+    .filter((entry) => entry.length > 0)
+    .map((entry) => parseLogosBibleRef(entry))
+    .filter((r): r is LogosBibleRange => r !== null);
+}
+
+type RefKey = [number, number, number];
+
+// Missing chapter/verse parts are open: at a range's start they mean "from the
+// beginning" (0), at its end "to the end" (Infinity).
+function rangeKey(p: LogosRefPoint, edge: "start" | "end"): RefKey {
+  const open = edge === "start" ? 0 : Number.POSITIVE_INFINITY;
+  return [p.book, p.chapter ?? open, p.verse ?? open];
+}
+
+function compareKeys(a: RefKey, b: RefKey): number {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Whether a Bible location falls inside a Logos range. A location without a
+ * chapter or verse counts as chapter/verse 1 (so "John 5" = John 5:1).
+ *
+ * @param range - The coverage range.
+ * @param point - The location to test.
+ * @returns True when the location lies within the range, inclusive.
+ */
+export function rangeContains(range: LogosBibleRange, point: LogosRefPoint): boolean {
+  const at: RefKey = [point.book, point.chapter ?? 1, point.verse ?? 1];
+  const end = range.end ?? range.start;
+  return compareKeys(rangeKey(range.start, "start"), at) <= 0 && compareKeys(at, rangeKey(end, "end")) <= 0;
+}

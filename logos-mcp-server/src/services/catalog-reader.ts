@@ -311,3 +311,23 @@ export function getResourceTitles(resourceIds: string[]): Map<string, string | n
   }
   return titles;
 }
+
+// ─── Catalog traits ─────────────────────────────────────────────────────────
+
+/**
+ * Records.Traits is tab-separated "key:value" entries (plus bare flags such as
+ * "supports-bible", which are skipped). Keeps the first value per key.
+ *
+ * @param traits - The raw Traits column value.
+ * @returns A map of trait key to its first value.
+ */
+export function parseTraits(traits: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of traits.split("\t")) {
+    const colon = entry.indexOf(":");
+    if (colon <= 0) continue;
+    const key = entry.slice(0, colon);
+    if (!map.has(key)) map.set(key, entry.slice(colon + 1));
+  }
+  return map;
+}
