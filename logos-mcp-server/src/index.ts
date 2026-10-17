@@ -5,11 +5,39 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { existsSync } from "fs";
 import Database from "better-sqlite3";
-import { SERVER_NAME, SERVER_VERSION, LOGOS_DATA_DIR, LOGOS_CATALOG_DIR, DB_PATHS, BIBLIA_API_KEY } from "./config.js";
+import {
+  SERVER_NAME,
+  SERVER_VERSION,
+  LOGOS_DATA_DIR,
+  LOGOS_CATALOG_DIR,
+  DB_PATHS,
+  BIBLIA_API_KEY,
+  LOGOS_LINK_STYLE,
+  DEFAULT_BIBLE_RESOURCE_ID,
+  OPTIONAL_DB_NAMES,
+} from "./config.js";
+import {
+  DISPATCHED_NOTE,
+  uiFollowUpHint,
+  logosStateText,
+  formatKnowledgeChoices,
+  windowTitlesAvailable,
+  openConfirmationText,
+} from "./utils/tool-text.js";
+import { resolveLimit, toJsonText } from "./utils/output.js";
 
 // Service imports
 import { getBibleText, searchBible, scanReferences, comparePassages, getAvailableBibles } from "./services/biblia-api.js";
-import { navigateToPassage, openWordStudy, openFactbook, openResource, openGuide, searchAll, isLogosRunning } from "./services/logos-app.js";
+import { launchLogosUrl, isLogosRunning } from "./services/logos-app.js";
+import {
+  buildPassageUrl,
+  buildResourceUrl,
+  buildGuideUrl,
+  buildFactbookUrl,
+  buildWordStudyUrl,
+  buildSearchAllUrl,
+} from "./services/logos-urls.js";
+import { resolveKnowledgeId, resolveGuideTarget } from "./services/knowledge-lookup.js";
 import { expandRange, parseReference } from "./services/reference-parser.js";
 import {
   getUserHighlights,
@@ -20,9 +48,10 @@ import {
   getReadingProgress,
   getUserNotes,
 } from "./services/sqlite-reader.js";
-import { searchCatalog, getResourceTypeSummary, typeLabel } from "./services/catalog-reader.js";
+import { searchCatalog, getResourceTypeSummary, typeLabel, getPreferredBibleResourceId, findPassageResources } from "./services/catalog-reader.js";
 import { captureLogosPanel, getLogosWindowTitles } from "./services/screenshot-capture.js";
-import type { CaptureToolType } from "./types.js";
+import { getReadingPlans, getResourceReadingProgress, getReadingHistory, getPassageLists, snapshotHistory, waitForHistoryVisit } from "./services/study-data.js";
+import type { CaptureToolType, GuideTarget, GuideTargetResolution, HistoryTarget, PassageResource, ReadingPlan, ReadingProgress } from "./types.js";
 
 function text(s: string) {
   return { content: [{ type: "text" as const, text: s }] };
@@ -40,6 +69,16 @@ function image(base64: string, description: string) {
     ],
   };
 }
+
+function json(data: unknown) {
+  return text(toJsonText(data));
+}
+
+const formatParam = z.enum(["text", "json"]).optional()
+  .describe('Output format: "text" (default) for reading, or "json" for structured data — raw and readable references, ISO dates, resource IDs and titles — to process further');
+
+const LOGOS_NOT_RUNNING =
+  "Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.";
 
 // Canonical lowercase form of a Bible reference ("Ro 8:28" -> "romans 8:28",
 // "Genesis 1:1-3" -> "genesis 1:1-3"). Returns null when the input isn't a
@@ -64,22 +103,65 @@ function canonicalReference(input: string): string | null {
   }
 }
 
+function formatReadingPlan(p: ReadingPlan): string {
+  const book = p.resourceTitle ?? p.resourceId;
+  const header = `- **${p.title}**${book ? ` — ${book}` : ""}`;
+  if (p.sessionsRead === null) {
+    return `${header}\n  progress unknown (ReadSessions = "${p.unparsedReadSessions}")`;
+  }
+  if (p.completed) {
+    return `${header}\n  all ${p.sessionsWithReadings} sessions read`;
+  }
+  const parts = [`${p.sessionsRead} of ${p.sessionsWithReadings} sessions read`];
+  if (p.nextReading) {
+    const readings = p.nextReading.readings.map((r) => r.reference).join(", ");
+    parts.push(`next: ${readings}${p.nextReading.date ? ` (${p.nextReading.date})` : ""}`);
+  }
+  if (p.daysBehind !== null) parts.push(`${p.daysBehind} days behind`);
+  return `${header}\n  ${parts.join(" · ")}`;
+}
+
+function formatReadingLists(progress: ReadingProgress): string {
+  const sections: string[] = [
+    `## Reading Lists\n\n**Overall**: ${progress.completedItems}/${progress.totalItems} items (${progress.percentComplete}%)`,
+  ];
+  if (progress.statuses.length > 0) {
+    sections.push(progress.statuses.map((s) => `- **${s.title}** by ${s.author} — ${s.statusLabel}`).join("\n"));
+  }
+  if (progress.items.length > 0) {
+    const MAX_ITEMS = 20;
+    const itemLines = progress.items.slice(0, MAX_ITEMS).map((i) => `- ${i.isRead ? "[read]" : "[unread]"} ${i.readingListPath}`);
+    const extra = progress.items.length > MAX_ITEMS ? `\n+${progress.items.length - MAX_ITEMS} more` : "";
+    sections.push(`### Items\n\n${itemLines.join("\n")}${extra}`);
+  }
+  return sections.join("\n\n");
+}
+
 async function main() {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
 
   // ── 1. navigate_passage ──────────────────────────────────────────────────
   server.tool(
     "navigate_passage",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or to position the app before capture_panel_screenshot.",
-    { reference: z.string().describe("Bible reference (e.g., 'Genesis 1:1', 'Romans 8:28-30')") },
-    async ({ reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a Bible passage in the Logos Bible Software UI, in bible_resource_id if given, otherwise in the user's most-used Bible. Provide a reference like 'Genesis 1:1' or 'Romans 8:28-30'. Use to show the user a passage in Logos, or (macOS) to position the app before capture_panel_screenshot. With the current link style, waits up to 8 seconds for Logos to confirm the passage opened and reports what it opened.",
+    {
+      reference: z.string().describe("Bible reference (e.g., 'Genesis 1:1', 'Romans 8:28-30')"),
+      bible_resource_id: z.string().optional()
+        .describe("Resource ID of the Bible to open it in, e.g. 'LLS:LEB' (find IDs with get_library_catalog type 'Bible'). Default: the user's most-used Bible, else LLS:LEB"),
+    },
+    async ({ reference, bible_resource_id }) => {
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const bibleId = bible_resource_id ?? getPreferredBibleResourceId() ?? DEFAULT_BIBLE_RESOURCE_ID;
+      // Current links open the passage as a resource, which Logos records.
+      const target: HistoryTarget = { kind: "resource", resourceId: bibleId, reference };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(target) : null;
+      const result = await launchLogosUrl(() => buildPassageUrl(reference, bibleId));
+      if (!result.success) return err(`Failed to open passage: ${result.error}`);
+      if (LOGOS_LINK_STYLE === "legacy") {
+        return text(`Dispatched to Logos: Bible passage ${reference}. ${DISPATCHED_NOTE}${uiFollowUpHint("bible")}`);
       }
-      const result = await navigateToPassage(reference);
-      return result.success
-        ? text(`Dispatched to Logos: Bible passage ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'bible') to see the results.`)
-        : err(`Failed to open passage: ${result.error}`);
+      const what = `Bible passage ${reference} in \`${bibleId}\``;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "bible"));
     }
   );
 
@@ -222,10 +304,12 @@ async function main() {
       notebook_title: z.string().optional().describe("Filter by notebook title (partial match)"),
       query: z.string().optional().describe("full-text match on note content"),
       passage: z.string().optional().describe("filter to notes anchored to this Bible passage, e.g. 'Romans 8'"),
-      limit: z.number().optional().describe("Max notes to return (default: 20)"),
+      limit: z.number().optional().describe("Max notes to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ notebook_title, query, passage, limit }) => {
-      const notes = getUserNotes({ notebookTitle: notebook_title, query, passage, limit: limit ?? 20 });
+    async ({ notebook_title, query, passage, limit, format }) => {
+      const notes = getUserNotes({ notebookTitle: notebook_title, query, passage, limit: resolveLimit(limit, 20, format) });
+      if (format === "json") return json(notes);
       if (notes.length === 0) {
         if (notebook_title) {
           return text(`No notes matched notebook '${notebook_title}'. Try get_user_notes without filters to see all notebooks, or check the spelling.`);
@@ -252,25 +336,32 @@ async function main() {
   // ── 7. get_user_highlights ───────────────────────────────────────────────
   server.tool(
     "get_user_highlights",
-    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns the highlight style and the resource title it lives in.",
+    "Read the user's highlights and visual markup from Logos Bible Software. Shows which passages have been highlighted and with what styles. Returns each highlight's style, the resource title it lives in, the Bible passage it covers, and its date.",
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       style_name: z.string().optional().describe("Filter by highlight style name"),
-      limit: z.number().optional().describe("Max highlights to return (default: 50)"),
+      limit: z.number().optional().describe("Max highlights to return (default: 50; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ resource_id, style_name, limit }) => {
+    async ({ resource_id, style_name, limit, format }) => {
       const highlights = getUserHighlights({
         resourceId: resource_id,
         styleName: style_name,
-        limit: limit ?? 50,
+        limit: resolveLimit(limit, 50, format),
       });
+      if (format === "json") return json(highlights);
       if (highlights.length === 0) {
         const filter = resource_id ? `resource '${resource_id}'` : style_name ? `style '${style_name}'` : null;
         return text(filter
           ? `No highlights matched ${filter}. Try removing the filters to see all highlights.`
           : "No highlights found — the Logos highlights database appears empty.");
       }
-      const lines = highlights.map((h) => `- **${h.styleName}**: ${h.resourceTitle ?? h.resourceId}`);
+      const lines = highlights.map((h) => {
+        const title = h.resourceTitle ?? h.resourceId;
+        const ref = h.reference ? ` — ${h.reference}` : "";
+        const date = h.syncDate ? ` (${h.syncDate.slice(0, 10)})` : "";
+        return `- **${h.styleName}** — ${title}${ref}${date}`;
+      });
       return text(`Found ${highlights.length} highlights:\n\n${lines.join("\n")}`);
     }
   );
@@ -282,14 +373,16 @@ async function main() {
     {
       resource_id: z.string().optional().describe("Filter by resource ID"),
       tag: z.string().optional().describe("Filter by clipping tag text (partial match)"),
-      limit: z.number().optional().describe("Max clippings to return (default: 20)"),
+      limit: z.number().optional().describe("Max clippings to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ resource_id, tag, limit }) => {
+    async ({ resource_id, tag, limit, format }) => {
       const clippings = getClippings({
         resourceId: resource_id,
         tag,
-        limit: limit ?? 20,
+        limit: resolveLimit(limit, 20, format),
       });
+      if (format === "json") return json(clippings);
 
       if (clippings.length === 0) {
         const filter = resource_id ? `resource '${resource_id}'` : tag ? `tag '${tag}'` : null;
@@ -316,10 +409,12 @@ async function main() {
     "get_favorites",
     "List the user's saved favorites/bookmarks in Logos Bible Software. Returns each favorite's title and the command it runs.",
     {
-      limit: z.number().optional().describe("Max favorites to return (default: 30)"),
+      limit: z.number().optional().describe("Max favorites to return (default: 30; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ limit }) => {
-      const favorites = getFavorites(limit ?? 30);
+    async ({ limit, format }) => {
+      const favorites = getFavorites(resolveLimit(limit, 30, format));
+      if (format === "json") return json(favorites);
       if (favorites.length === 0) return text("No favorites found — the Logos favorites database appears empty.");
       const lines = favorites.map((f) => `- **${f.title}** → ${f.appCommand}`);
       return text(`Found ${favorites.length} favorites:\n\n${lines.join("\n")}`);
@@ -329,22 +424,31 @@ async function main() {
   // ── 10. get_reading_progress ─────────────────────────────────────────────
   server.tool(
     "get_reading_progress",
-    "Show the user's reading plan progress from Logos Bible Software. Displays reading lists, completion percentages, status, and recent items.",
-    {},
-    async () => {
-      const progress = getReadingProgress();
-      const sections: string[] = [];
-      sections.push(`**Overall**: ${progress.completedItems}/${progress.totalItems} items (${progress.percentComplete}%)`);
-      if (progress.statuses.length > 0) {
-        const statusLines = progress.statuses.map((s) => `- **${s.title}** by ${s.author} — ${s.statusLabel}`);
-        sections.push(`## Reading Plans\n\n${statusLines.join("\n")}`);
+    "Show the user's Logos reading plans: for each plan its book, how many sessions are read, the next reading with its scheduled date, and how many days behind schedule it is. Also shows lists from Logos's older reading-list store when it has any. Use format 'json' for structured data (e.g. to build a new plan from where the user is).",
+    { format: formatParam },
+    async ({ format }) => {
+      const plans = getReadingPlans();
+      let lists: ReadingProgress | null;
+      try {
+        lists = getReadingProgress();
+      } catch {
+        lists = null; // ReadingLists.db absent
       }
-      if (progress.items.length > 0) {
-        const MAX_ITEMS = 20;
-        const shown = progress.items.slice(0, MAX_ITEMS);
-        const itemLines = shown.map((i) => `- ${i.isRead ? "[read]" : "[unread]"} ${i.readingListPath}`);
-        const extra = progress.items.length > MAX_ITEMS ? `\n+${progress.items.length - MAX_ITEMS} more` : "";
-        sections.push(`## Items\n\n${itemLines.join("\n")}${extra}`);
+      if (format === "json") return json({ readingPlans: plans, readingLists: lists });
+      if (plans === null && lists === null) {
+        return err("No reading plan store found (neither ReadingPlan.db nor ReadingLists.db). Run diagnose to check the Logos data paths.");
+      }
+
+      const sections: string[] = [];
+      if (plans !== null) {
+        sections.push(plans.length > 0
+          ? `## Reading Plans\n\n${plans.map(formatReadingPlan).join("\n\n")}`
+          : "## Reading Plans\n\nNo reading plans found.");
+      }
+      // Logos 54 keeps an empty older store; show it only when it is the only
+      // store or actually holds lists.
+      if (lists !== null && (plans === null || lists.statuses.length > 0 || lists.items.length > 0)) {
+        sections.push(formatReadingLists(lists));
       }
       return text(sections.join("\n\n"));
     }
@@ -353,32 +457,59 @@ async function main() {
   // ── 11. open_word_study ──────────────────────────────────────────────────
   server.tool(
     "open_word_study",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a word study in Logos for a Greek, Hebrew, or English word. Use to study a word in its original-language resources, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open Bible Word Study in Logos for a Greek, Hebrew, or English word. Current Logos does not accept the word via link, so it opens empty and the user must type the word — this tool's reply says so. Use to send the user to a word study.",
     { word: z.string().describe("The word to study (e.g., 'agape', 'hesed', 'justification')") },
     async ({ word }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const result = await launchLogosUrl(() => buildWordStudyUrl(word));
+      if (!result.success) return err(`Failed to open word study: ${result.error}`);
+      if (LOGOS_LINK_STYLE === "current") {
+        return text(`Opened Bible Word Study. Logos does not accept the word via link — ask the user to type "${word}" into it (use \`g:\` / \`h:\` for Greek/Hebrew, e.g. \`g:agape\`).`);
       }
-      const result = await openWordStudy(word);
-      return result.success
-        ? text(`Dispatched to Logos: word study for "${word}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'wordstudy') to see the results.`)
-        : err(`Failed to open word study: ${result.error}`);
+      return text(`Dispatched to Logos: word study for "${word}". ${DISPATCHED_NOTE}${uiFollowUpHint("wordstudy")}`);
     }
   );
 
   // ── 12. open_factbook ────────────────────────────────────────────────────
   server.tool(
     "open_factbook",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). Use to look up background information, or to position Logos before capture_panel_screenshot.",
-    { topic: z.string().describe("The topic to look up (e.g., 'Moses', 'Jerusalem', 'Passover')") },
-    async ({ topic }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open the Logos Factbook for a person, place, event, or topic (e.g., 'Moses', 'Jerusalem', 'Passover'). The name is looked up in Logos's own index; when it matches several entries (e.g. Moses the person and Moses the topic) nothing opens and the reply lists them — call again with kb_id. With the current link style, waits up to 8 seconds for Logos to confirm the entry opened and reports what it opened.",
+    {
+      topic: z.string().optional().describe("Name to look up (e.g., 'Moses', 'Jerusalem', 'Passover')"),
+      kb_id: z.string().optional()
+        .describe("Knowledge-base ID to open directly (e.g., 'bk.#Moses'), as listed when a topic name is ambiguous. Takes precedence over topic"),
+    },
+    async ({ topic, kb_id }) => {
+      const input = kb_id ?? topic;
+      if (!input) return err("Provide a topic name or a kb_id.");
+      // Legacy Factbook links take a topic name; a knowledge-base ID would open nothing.
+      if (kb_id && LOGOS_LINK_STYLE === "legacy") {
+        return err("Opening a Factbook entry by kb_id needs LOGOS_LINK_STYLE=current. Pass the topic name instead.");
       }
-      const result = await openFactbook(topic);
-      return result.success
-        ? text(`Dispatched to Logos: Factbook entry for "${topic}". This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'factbook') to see the results.`)
-        : err(`Failed to open Factbook: ${result.error}`);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+
+      if (LOGOS_LINK_STYLE === "legacy") {
+        const result = await launchLogosUrl(() => buildFactbookUrl(input));
+        return result.success
+          ? text(`Dispatched to Logos: Factbook entry for "${input}". ${DISPATCHED_NOTE}${uiFollowUpHint("factbook")}`)
+          : err(`Failed to open Factbook: ${result.error}`);
+      }
+
+      const resolution = resolveKnowledgeId(input);
+      if (resolution.status === "unavailable") return err(resolution.message);
+      if (resolution.status === "not_found") {
+        return text(`No Factbook entry named "${input}". Check the spelling or try a broader name; a knowledge-base ID such as "bk.#Moses" can also be passed as kb_id.`);
+      }
+      if (resolution.status === "ambiguous") {
+        return text(`"${input}" matches ${resolution.matches.length} Factbook entries, so nothing was opened. Call open_factbook again with kb_id set to the one you mean:\n\n${formatKnowledgeChoices(resolution.matches)}`);
+      }
+      const { entry } = resolution;
+      const target: HistoryTarget = { kind: "factbook", kbId: entry.id };
+      const before = snapshotHistory(target);
+      const result = await launchLogosUrl(() => buildFactbookUrl(entry.id));
+      if (!result.success) return err(`Failed to open Factbook: ${result.error}`);
+      const what = `Factbook entry ${entry.label} (\`${entry.id}\`)`;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "factbook"));
     }
   );
 
@@ -388,10 +519,15 @@ async function main() {
     "List available study workflow templates and active workflow instances from Logos Bible Software. Workflows provide structured, step-by-step study approaches like 'Inductive Bible Study', 'Lectio Divina', etc. Returns template titles and instance progress.",
     {
       include_instances: z.boolean().optional().describe("Also show active workflow instances (default: true)"),
-      instance_limit: z.number().optional().describe("Max active instances to return (default: 10)"),
+      instance_limit: z.number().optional().describe("Max active instances to return (default: 10; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ include_instances, instance_limit }) => {
+    async ({ include_instances, instance_limit, format }) => {
       const templates = getWorkflowTemplates();
+      if (format === "json") {
+        const instances = include_instances !== false ? getWorkflowInstances(resolveLimit(instance_limit, 10, format)) : [];
+        return json({ templates, instances });
+      }
       const sections: string[] = [];
       if (templates.length > 0) {
         const tLines = templates.map((t) => `- **${t.title}** (${t.externalId})`);
@@ -421,11 +557,13 @@ async function main() {
       type: z.string().optional().describe("Filter by resource type — accepts a human label (e.g., 'commentary') or a raw dotted type (e.g., 'text.monograph.commentary.bible')"),
       query: z.string().optional().describe("Search titles, descriptions, and subjects"),
       author: z.string().optional().describe("Filter by author name"),
-      limit: z.number().optional().describe("Max results to return (default: 25)"),
+      limit: z.number().optional().describe("Max results to return (default: 25; up to 1000 with format 'json')"),
+      format: formatParam,
     },
-    async ({ type, query, author, limit }) => {
+    async ({ type, query, author, limit, format }) => {
       try {
-        const resources = searchCatalog({ type, query, author, limit: limit ?? 25 });
+        const resources = searchCatalog({ type, query, author, limit: resolveLimit(limit, 25, format) });
+        if (format === "json") return json(resources.map((r) => ({ ...r, typeLabel: typeLabel(r.type) })));
         if (resources.length === 0) {
           if (type) {
             return text(`No resources matched type '${type}'. The type filter accepts either a human label from get_resource_types (e.g. 'Commentary') or a raw dotted type (e.g. 'text.monograph.commentary.bible'). Call get_resource_types to see valid labels, or remove the filter.`);
@@ -448,71 +586,89 @@ async function main() {
   // ── 15. open_resource ─────────────────────────────────────────────────────
   server.tool(
     "open_resource",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a specific resource (commentary, lexicon, etc.) in Logos, optionally at a Bible passage. Use to show the user a resource, or (macOS) to position Logos before capture_panel_screenshot. Waits up to 8 seconds for Logos to confirm the resource opened and reports what it opened.",
     {
       resource_id: z.string().describe("Resource ID from the library catalog (e.g., 'LLS:CLVNCOMM')"),
       reference: z.string().optional().describe("Bible reference to navigate to within the resource (e.g., 'Romans 12:1')"),
     },
     async ({ resource_id, reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
-      }
-      const result = await openResource(resource_id, reference);
-      const refStr = reference ? ` at ${reference}` : "";
-      return result.success
-        ? text(`Dispatched to Logos: resource \`${resource_id}\`${refStr}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'resource') to see the results.`)
-        : err(`Failed to open resource: ${result.error}`);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const target: HistoryTarget = { kind: "resource", resourceId: resource_id, reference };
+      const before = snapshotHistory(target);
+      const result = await launchLogosUrl(() => buildResourceUrl(resource_id, reference));
+      if (!result.success) return err(`Failed to open resource: ${result.error}`);
+      const what = `resource \`${resource_id}\`${reference ? ` at ${reference}` : ""}`;
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), what, "resource"));
     }
   );
 
   // ── 16. open_guide ────────────────────────────────────────────────────────
   server.tool(
     "open_guide",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open an Exegetical Guide, Passage Guide, or other guide type in Logos for a Bible passage. Use to run a guide on a passage, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Open a guide in Logos: a Passage Guide or Exegetical Guide for a Bible passage, or a Topic Guide for a topic. A topic name is looked up in Logos's own index; when it matches several entries nothing opens and the reply lists their IDs — call again with one as reference. With the current link style, waits up to 8 seconds for Logos to confirm the guide opened and reports what it opened.",
     {
-      guide_type: z.string().describe("Guide template name (e.g., 'Exegetical Guide', 'Passage Guide')"),
-      reference: z.string().describe("Bible reference (e.g., 'Romans 12:1', 'John 3:16')"),
+      guide_type: z.string()
+        .describe("Guide title as shown in Logos: 'Passage Guide', 'Exegetical Guide' or 'Topic Guide' (verified); 'Sermon Starter Guide' opens without its theme (Logos ignores the subject in the link)"),
+      reference: z.string()
+        .describe("Bible reference for Passage/Exegetical guides (e.g., 'Romans 12:1'); for Topic Guide a topic name (e.g., 'Sabbath') or knowledge-base ID (e.g., 'bk.%Sabbath')"),
     },
     async ({ guide_type, reference }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+
+      // Legacy links only ever took a Bible reference; keep that behavior.
+      const resolution: GuideTargetResolution =
+        LOGOS_LINK_STYLE === "legacy" ? { status: "bible", reference } : resolveGuideTarget(guide_type, reference);
+      if (resolution.status === "unavailable") return err(resolution.message);
+      if (resolution.status === "invalid") return err(`Failed to open guide: ${resolution.message}`);
+      if (resolution.status === "not_found") {
+        return text(`No ${guide_type} subject named "${reference}". Check the spelling, or pass a knowledge-base ID such as "bk.%Sabbath" as reference.`);
       }
-      const result = await openGuide(guide_type, reference);
-      return result.success
-        ? text(`Dispatched to Logos: ${guide_type} for ${reference}. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'guide') to see the results.`)
-        : err(`Failed to open guide: ${result.error}`);
+      if (resolution.status === "ambiguous") {
+        return text(`"${reference}" matches ${resolution.matches.length} entries, so nothing was opened. Call open_guide again with reference set to the ID you mean:\n\n${formatKnowledgeChoices(resolution.matches)}`);
+      }
+
+      const target: GuideTarget =
+        resolution.status === "bible"
+          ? { kind: "bible", reference: resolution.reference }
+          : { kind: "kb", id: resolution.entry.id };
+      const subject =
+        resolution.status === "bible" ? resolution.reference : `${resolution.entry.label} (\`${resolution.entry.id}\`)`;
+      const historyTarget: HistoryTarget = { kind: "guide", guideTitle: guide_type, subject: target };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(historyTarget) : null;
+      const result = await launchLogosUrl(() => buildGuideUrl(guide_type, target));
+      if (!result.success) return err(`Failed to open guide: ${result.error}`);
+      return text(openConfirmationText(await waitForHistoryVisit(historyTarget, before), `${guide_type} for ${subject}`, "guide"));
     }
   );
 
   // ── 17. search_all ────────────────────────────────────────────────────────
   server.tool(
     "search_all",
-    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Search across ALL resources in the Logos library (not just Bible text). Use for broad research, or to position Logos before capture_panel_screenshot.",
+    "SIDE EFFECT ONLY — opens the Logos UI on screen; returns no data. Run a search across ALL resources in the Logos library (not just Bible text) in Logos's Search panel. Use for broad research. With the current link style, waits up to 8 seconds for Logos to confirm the search opened and reports what it opened.",
     {
       query: z.string().describe("Search query (e.g., 'justification by faith', 'baptism')"),
     },
     async ({ query }) => {
-      if (!(await isLogosRunning())) {
-        return text("Logos is not running. Ask the user to launch Logos first, or use get_bible_text / search_bible, which work without the app.");
-      }
-      const result = await searchAll(query);
-      return result.success
-        ? text(`Dispatched to Logos: search for "${query}" across all resources. This only opens the Logos UI on the user's screen — no data is returned to you. Call get_logos_state to confirm what Logos is showing, or capture_panel_screenshot (panel_type: 'searchall') to see the results.`)
-        : err(`Failed to open search: ${result.error}`);
+      if (!(await isLogosRunning())) return text(LOGOS_NOT_RUNNING);
+      const target: HistoryTarget = { kind: "search", query, searchKind: "AllSearch" };
+      const before = LOGOS_LINK_STYLE === "current" ? snapshotHistory(target) : null;
+      const result = await launchLogosUrl(() => buildSearchAllUrl(query));
+      if (!result.success) return err(`Failed to open search: ${result.error}`);
+      return text(openConfirmationText(await waitForHistoryVisit(target, before), `search for "${query}" across all resources`, "searchall"));
     }
   );
 
   // ── 18. get_logos_state ───────────────────────────────────────────────────
   server.tool(
     "get_logos_state",
-    "Check what Logos Bible Software is currently showing: whether the app is running and the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
+    "Check what Logos Bible Software is currently showing: whether the app is running and, on macOS only, the titles of its open windows. Returns text. Use after navigate/open tools to confirm navigation happened, or before them to check Logos is ready. Cheap and fast — prefer this over capture_panel_screenshot when window titles are enough.",
     {},
     async () => {
       const running = await isLogosRunning();
       if (!running) return text("Logos is not running.");
-      const titles = await getLogosWindowTitles();
-      const lines = titles.length > 0 ? titles.map((t) => `- ${t}`) : ["- (no named windows found)"];
-      return text(`Logos is running. Window titles:\n${lines.join("\n")}`);
+      // Window titles need the macOS helper; don't try to build it elsewhere.
+      const titles = windowTitlesAvailable() ? await getLogosWindowTitles() : [];
+      return text(logosStateText(titles));
     }
   );
 
@@ -599,10 +755,11 @@ async function main() {
   server.tool(
     "get_resource_types",
     "Get a summary of resource types and counts in the user's Logos library. Returns each type's label and count. Useful for choosing a type filter for get_library_catalog.",
-    {},
-    async () => {
+    { format: formatParam },
+    async ({ format }) => {
       try {
         const summary = getResourceTypeSummary();
+        if (format === "json") return json(summary);
         if (summary.length === 0) return text("No resources found in library catalog.");
         const total = summary.reduce((sum, s) => sum + s.count, 0);
         const lines = summary.map((s) => `- **${s.label}**: ${s.count}`);
@@ -617,7 +774,7 @@ async function main() {
   // ── 23. capture_panel_screenshot ──────────────────────────────────────────
   server.tool(
     "capture_panel_screenshot",
-    "Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
+    "macOS only. Navigate Logos to a passage/resource and capture a screenshot of the window. Returns the screenshot as an image for the LLM to read with vision. Useful for reading Bible text, commentaries, and other content that is only available in the Logos UI.",
     {
       panel_type: z.enum(["bible", "factbook", "wordstudy", "guide", "search", "searchall", "resource"])
         .describe("Type of Logos panel to capture"),
@@ -671,7 +828,7 @@ async function main() {
       lines.push("### Databases\n");
       for (const [name, path] of Object.entries(DB_PATHS)) {
         const found = existsSync(path);
-        const icon = found ? "OK" : "MISSING";
+        const icon = found ? "OK" : OPTIONAL_DB_NAMES.has(name) ? "not present (optional: not on every Logos version)" : "MISSING";
         lines.push(`- **${name}**: ${icon}  \`${path}\``);
       }
 
@@ -700,6 +857,132 @@ async function main() {
       lines.push(`**BIBLIA_API_KEY**: ${BIBLIA_API_KEY ? "set" : "NOT SET"}`);
 
       return text(lines.join("\n"));
+    }
+  );
+
+  // ── 25. get_resource_reading_progress ─────────────────────────────────────
+  server.tool(
+    "get_resource_reading_progress",
+    "List how far the user has read in each Logos book — percent read and when they last read in it — from Logos's own reading tracker. Use to see which books the user is working through or has nearly finished. Filter by resource type; sort by most recent or by percent read.",
+    {
+      sort: z.enum(["recent", "percent"]).optional()
+        .describe("Order: 'recent' (most recently read first) or 'percent' (most read first) (default: recent)"),
+      type: z.string().optional()
+        .describe("Filter by resource type — a human label (e.g., 'commentary') or a raw dotted type, as in get_library_catalog"),
+      limit: z.number().optional().describe("Max books to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ sort, type, limit, format }) => {
+      const entries = getResourceReadingProgress({ sort, type, limit: resolveLimit(limit, 20, format) });
+      if (format === "json") return json(entries);
+      if (entries === null) {
+        return text("Per-book reading progress is not available on this Logos version (readingprogressmanager.db not found).");
+      }
+      if (entries.length === 0) {
+        return text(type
+          ? `No reading progress for resources of type '${type}'. Remove the type filter to see all books.`
+          : "No reading progress recorded yet.");
+      }
+      const lines = entries.map((e) => {
+        const last = e.lastReadDate ? ` (last read ${e.lastReadDate.slice(0, 10)})` : "";
+        return `- **${e.title ?? e.resourceId}** — ${e.percentRead}% read${last}`;
+      });
+      return text(`Found ${entries.length} books with reading progress:\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 26. get_reading_history ───────────────────────────────────────────────
+  server.tool(
+    "get_reading_history",
+    "Read the user's Logos browsing history — the books, Bible passages, guides and searches they opened, newest first, with when and where. This is the user's own usage history; use it to see what they have been studying recently or to pick up where they left off.",
+    {
+      since: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?Z?)?$/, "Use an ISO date such as 2026-10-01 or a UTC time such as 2026-10-01T09:00:00Z").optional()
+        .describe("Only visits on or after this ISO date/time, UTC (e.g., '2026-10-01')"),
+      resource_id: z.string().optional().describe("Only visits to this resource (e.g., 'LLS:LEB')"),
+      limit: z.number().optional().describe("Max visits to return (default: 20; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ since, resource_id, limit, format }) => {
+      const visits = getReadingHistory({ since, resourceId: resource_id, limit: resolveLimit(limit, 20, format) });
+      if (format === "json") return json(visits);
+      if (visits === null) {
+        return text("Reading history is not available on this Logos version (history.db not found).");
+      }
+      if (visits.length === 0) {
+        return text(since || resource_id
+          ? "No history matched those filters. Try removing since or resource_id."
+          : "No history recorded yet.");
+      }
+      const lines = visits.map((v) => {
+        const when = v.lastVisited.replace("T", " ").slice(0, 16);
+        const where = v.subtitle ? ` — ${v.subtitle}` : "";
+        return `- ${when} — **${v.title}**${where}`;
+      });
+      return text(`Found ${visits.length} visits (newest first, times UTC):\n\n${lines.join("\n")}`);
+    }
+  );
+
+  // ── 27. get_passage_lists ─────────────────────────────────────────────────
+  server.tool(
+    "get_passage_lists",
+    "List the user's saved passage lists from Logos — named lists of Bible references (e.g. key passages on a topic). Returns each list's title, date and passages. Use to reuse passages the user has already collected.",
+    { format: formatParam },
+    async ({ format }) => {
+      const lists = getPassageLists();
+      if (format === "json") return json(lists);
+      if (lists === null) {
+        return text("Passage lists are not available on this Logos version (PassageList.db not found).");
+      }
+      if (lists.length === 0) return text("No passage lists found.");
+      const blocks = lists.map((l) => {
+        const date = l.modifiedDate ? ` (modified ${l.modifiedDate.slice(0, 10)})` : "";
+        const passages = l.passages.length > 0
+          ? l.passages.map((p) => `- ${p.reference}`).join("\n")
+          : "- (no passages)";
+        return `**${l.title ?? "(untitled list)"}**${date}\n${passages}`;
+      });
+      return text(`Found ${lists.length} passage lists:\n\n${blocks.join("\n\n")}`);
+    }
+  );
+
+  // ── 28. find_passage_resources ────────────────────────────────────────────
+  server.tool(
+    "find_passage_resources",
+    "Find which resources in the user's Logos library cover a Bible passage — commentaries, study Bibles, cross-reference works, Bibles, harmonies — from the library catalog's coverage data. Returns each resource's title, author, series, kind, commentary purpose and resource ID; commentaries first, then the ones the user opens most. Use with open_resource to open the chosen books at the passage.",
+    {
+      passage: z.string().describe("Bible reference (e.g., 'John 5:14', 'Romans 8')"),
+      kind: z.enum(["commentary", "study bible", "cross-references", "bible", "harmony"]).optional()
+        .describe("Only resources of this kind (default: all kinds)"),
+      purpose: z.enum(["exegetical", "expositional", "application", "devotional", "concise"]).optional()
+        .describe("Only commentaries written for this purpose (default: any)"),
+      limit: z.number().optional().describe("Max resources to return (default: 25; up to 1000 with format 'json')"),
+      format: formatParam,
+    },
+    async ({ passage, kind, purpose, limit, format }) => {
+      let resources: PassageResource[];
+      try {
+        resources = findPassageResources({ passage, kind, purpose, limit: resolveLimit(limit, 25, format) });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return err(msg.startsWith("Database not found") ? `Library catalog error: ${msg}` : msg);
+      }
+      if (format === "json") return json(resources);
+      if (resources.length === 0) {
+        const filters = [kind, purpose].filter(Boolean).join(", ");
+        return text(filters
+          ? `No ${filters} resources in the user's library cover ${passage}. Try removing the kind/purpose filter.`
+          : `No resources in the user's library cover ${passage}.`);
+      }
+      const lines = resources.map((r) => {
+        const name = r.abbreviatedTitle ? `**${r.abbreviatedTitle}** — ${r.title}` : `**${r.title}**`;
+        const by = r.authors ? ` — ${r.authors}` : "";
+        const series = r.series ? ` (${r.series})` : "";
+        const details = [r.kind, r.purpose, r.era, r.communityRating !== null ? `rated ${r.communityRating}` : null]
+          .filter(Boolean)
+          .join(" · ");
+        return `- ${name}${by}${series}\n  ${details} | ID: \`${r.resourceId}\``;
+      });
+      return text(`Found ${resources.length} resources covering ${passage}:\n\n${lines.join("\n\n")}\n\nOpen one at the passage with open_resource (resource_id, reference).`);
     }
   );
 

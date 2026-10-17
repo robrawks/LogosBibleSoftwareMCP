@@ -128,8 +128,20 @@ export const DB_PATHS = {
   notes: join(LOGOS_DATA_DIR, "NotesToolManager", "notestool.db"),
   clippings: join(LOGOS_DATA_DIR, "Documents", "Clippings", "Clippings.db"),
   passageLists: join(LOGOS_DATA_DIR, "Documents", "PassageList", "PassageList.db"),
+  readingPlans: join(LOGOS_DATA_DIR, "Documents", "ReadingPlan", "ReadingPlan.db"),
   catalog: join(LOGOS_CATALOG_DIR, "LibraryCatalog", "catalog.db"),
+  // Name -> knowledge-base ID lookup (~110 MB; queries touch only small tables).
+  autoComplete: join(LOGOS_CATALOG_DIR, "AutoComplete", "AutoComplete.db"),
+  readingProgress: join(LOGOS_CATALOG_DIR, "ReadingProgressManager", "readingprogressmanager.db"),
+  history: join(LOGOS_CATALOG_DIR, "HistoryManager", "history.db"),
 } as const;
+
+// DB_PATHS entries that only some Logos versions (or a Logos that has run at
+// least once) have. diagnose reports them as not present instead of failing;
+// their tools fall back or answer "not available". visualMarkup is absent on
+// Logos 54 (highlights moved to notestool.db); AutoComplete.db is built on
+// first run.
+export const OPTIONAL_DB_NAMES: ReadonlySet<string> = new Set(["visualMarkup", "autoComplete", "readingPlans", "readingLists", "readingProgress", "history", "passageLists"]);
 
 // ─── Biblia API ──────────────────────────────────────────────────────────────
 
@@ -139,7 +151,16 @@ export const DEFAULT_BIBLE = "LEB";
 
 // ─── Logos URL Schemes ───────────────────────────────────────────────────────
 
-export const LOGOS_URL_BASE = "logos4:";
+// "current" = link formats verified on Logos 54 (design doc F1/F5/F6);
+// "legacy"  = the logos4:/// query-string URLs used before, reported to work
+// on macOS Logos 48. Whether Logos accepted a guide/Factbook link can't be
+// detected, so this is an explicit setting.
+export type LinkStyle = "current" | "legacy";
+export const LOGOS_LINK_STYLE: LinkStyle =
+  process.env.LOGOS_LINK_STYLE?.trim().toLowerCase() === "legacy" ? "legacy" : "current";
+
+// Bible to open passages in when the catalog names none.
+export const DEFAULT_BIBLE_RESOURCE_ID = "LLS:LEB";
 
 // ─── Screenshot Capture ─────────────────────────────────────────────────────
 
