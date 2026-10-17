@@ -119,6 +119,8 @@ Tools that open things in the Logos desktop app
 | `get_logos_state` | Checks whether Logos is running and, on macOS, lists its open window titles |
 | `capture_panel_screenshot` | macOS only: navigates Logos and captures the visible panel as an image for AI vision |
 
+**How opens are confirmed.** `navigate_passage`, `open_resource`, `open_guide`, `open_factbook` and `search_all` watch Logos's own history (`history.db`) after sending the link. The reply says the item opened, that Logos was already showing it, or that Logos did not confirm it (usually because Logos is busy). On a Logos version without `history.db`, they report that the link was sent, as before.
+
 ### Search & Discovery
 Tools for searching Bible text and library resources
 
@@ -170,7 +172,7 @@ Tools for troubleshooting and verifying your setup
 
 ### Structured output
 
-Every tool that reads your Logos data (notes, highlights, clippings, favorites, reading plans and progress, history, passage lists, workflows, library catalog, resource types) accepts `format: "json"`. JSON mode returns the underlying records — readable *and* raw Logos references, ISO dates, resource IDs and titles — for building reading plans or feeding other tools, and allows a `limit` of up to 1,000. A store your Logos version doesn't have comes back as `null`.
+Every tool that reads your Logos data (notes, highlights, clippings, favorites, reading plans and progress, history, passage lists, workflows, library catalog, resource types, passage resources) accepts `format: "json"`. JSON mode returns the underlying records — readable *and* raw Logos references, ISO dates, resource IDs and titles — for building reading plans or feeding other tools, and allows a `limit` of up to 1,000. A store your Logos version doesn't have comes back as `null`.
 
 ## Using the Socratic Bible Study Agent
 
@@ -224,9 +226,12 @@ LogosBibleSoftwareMCP/
 │   │   │   ├── study-data.ts          # Reading plans, progress, history, passage lists
 │   │   │   ├── catalog-reader.ts      # Library catalog search and passage coverage (catalog.db)
 │   │   │   └── screenshot-capture.ts  # macOS window capture
-│   │   └── utils/                     # clippings.ts (blob decoding), strip-markup.ts, tool-text.ts
+│   │   └── utils/                     # clippings.ts (blob decoding), output.ts (json format), strip-markup.ts, tool-text.ts
+│   ├── tests/                         # Vitest suite; helpers/ builds fixture databases and runs the server over stdio
 │   └── dist/                          # Built output (after npm run build)
 ```
+
+Run the tests with `cd logos-mcp-server && npm test`. They use fixture databases, so they don't need Logos or a Biblia API key.
 
 ## How It Works
 
@@ -234,7 +239,7 @@ The MCP server integrates with Logos through four channels:
 
 - **Biblia API** - Retrieves Bible text and search results via the free REST API from Faithlife (same company as Logos)
 - **URL schemes** - Opens passages, resources, guides and Factbook entries in the Logos app using `logosres:` and `logos4:` links (via `open` on macOS, the registered protocol handler on Windows); see [Logos Link Style](#logos-link-style)
-- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans and progress, history, passage lists) and library catalog directly from the Logos local database files (read-only access, never modifies your data)
+- **SQLite databases** - Reads your personal data (notes, highlights, favorites, workflows, reading plans and progress, history, passage lists), the library catalog and its passage coverage, and Logos's history to confirm opens, directly from the Logos local database files (read-only access, never modifies your data)
 - **Screen capture + vision** - Captures Logos windows so AI can read content displayed in the app UI when direct DB text access is unavailable
 
 ## Logos Data Path
@@ -298,7 +303,7 @@ Logos numbers Bible books its own way in stored references: Genesis–Malachi ar
 
 **Tools don't appear in `/mcp`** - Restart Claude Code. The MCP server is loaded at startup from `.mcp.json`.
 
-**Logos doesn't open passages** - Make sure Logos Bible Software is running before using the navigation tools. On an older Logos version, try `LOGOS_LINK_STYLE=legacy` (see [Logos Link Style](#logos-link-style)). If Logos is busy (still starting or indexing), a link can start a second `Logos.exe` that opens nothing — wait until Logos responds, end the extra process, and try again.
+**Logos doesn't open passages** - Make sure Logos Bible Software is running before using the navigation tools. On an older Logos version, try `LOGOS_LINK_STYLE=legacy` (see [Logos Link Style](#logos-link-style)). If a tool replies that "Logos did not confirm opening it", Logos is probably busy (still starting or indexing): a link can then start a second `Logos.exe` that opens nothing — wait until Logos responds, end the extra process, and try again.
 
 **"Logos's lookup table was not found"** - `open_factbook` and Topic Guides find entries in `AutoComplete.db`, which Logos builds when it first runs. Open Logos once and let it finish starting, or pass a knowledge-base ID such as `bk.#Moses` directly.
 
